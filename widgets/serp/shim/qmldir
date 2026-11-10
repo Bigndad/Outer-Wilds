@@ -1,0 +1,29 @@
+singleton ThemeBackend 1.0 ThemeBackend.qml
+singleton Scaler 1.0 Scaler.qml
+singleton DateTime 1.0 DateTime.qml
+singleton Weather 1.0 Weather.qml
+singleton Location 1.0 Location.qml
+singleton I18n 1.0 I18n.qml
+singleton Caching 1.0 Caching.qml
+singleton SystemInfo 1.0 SystemInfo.qml
+singleton Cava 1.0 Cava.qml
+singleton UPower 1.0 UPower.qml
+singleton UPowerDeviceState 1.0 UPowerDeviceState.qml
+singleton UPowerDeviceType 1.0 UPowerDeviceType.qml
+WallpaperBlur 1.0 WallpaperBlur.qml
+SystemUsageCircle 1.0 SystemUsageCircle.qml
+FluidWave 1.0 FluidWave.qml
+LoaderIcon 1.0 LoaderIcon.qml
+Visualizer 1.0 Visualizer.qml
+singleton MprisController 1.0 MprisController.qml
+singleton Lyrics 1.0 Lyrics.qml
+singleton Spectrum 1.0 Spectrum.qml
+LyricsView 1.0 LyricsView.qml
+WavySeekBar 1.0 WavySeekBar.qml
+MarqueeText 1.0 MarqueeText.qml
+BoundedImage 1.0 BoundedImage.qml
+IconButton 1.0 IconButton.qml
+SubscriptionGate 1.0 SubscriptionGate.qml
+ClickButton 1.0 ClickButton.qml
+LyricsPicker 1.0 LyricsPicker.qml
+GlassFill 1.0 GlassFill.qml

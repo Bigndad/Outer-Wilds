@@ -1,0 +1,22 @@
+singleton Theme 1.0 Theme.qml
+singleton Prefs 1.0 Prefs.qml
+singleton Loc 1.0 Loc.qml
+singleton Zones 1.0 Zones.qml
+singleton Widgets 1.0 Widgets.qml
+singleton Units 1.0 Units.qml
+singleton WeatherSource 1.0 WeatherSource.qml
+singleton Agenda 1.0 Agenda.qml
+singleton Cava 1.0 Cava.qml
+singleton UPower 1.0 UPower.qml
+singleton UPowerDeviceState 1.0 UPowerDeviceState.qml
+singleton UPowerDeviceType 1.0 UPowerDeviceType.qml
+WidgetBody 1.0 WidgetBody.qml
+LText 1.0 LText.qml
+ShadowText 1.0 ShadowText.qml
+MaterialShape 1.0 MaterialShape.qml
+Icon 1.0 Icon.qml
+WeatherIcon 1.0 WeatherIcon.qml
+CircularProgress 1.0 CircularProgress.qml
+LinearProgress 1.0 LinearProgress.qml
+LoadingIndicator 1.0 LoadingIndicator.qml
+MonthView 1.0 MonthView.qml
