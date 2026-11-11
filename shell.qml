@@ -8,6 +8,12 @@ ShellRoot {
 
     LauncherWindow { }
 
+    // widget settings: widgets.json <-> WidgetConfig, and the panel (qs -c outerwilds ipc call settings toggle)
+    WidgetConfigStore { }
+    SettingsWindow { }
+    ScreentimeWindow { }
+    WallpaperWindow { }
+
     Variants {
         model: Quickshell.screens
 

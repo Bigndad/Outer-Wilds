@@ -1,0 +1,123 @@
+import QtQuick
+import ".."
+
+// All orbiting widgets live here, ABOVE the camera's mouse area (so they are clickable).
+// Add / move / remove widgets by editing `defs` only.
+//
+//   host      body id from bodyMeta ("sun", "timber_hearth", "attlerock", ...)
+//   source    built-in widget file            kind: "noctalia" -> a Noctalia plugin instead (see below)
+//   show      "always" | "focus"  (focus = fades in when the planet is targeted/locked or you fly close)
+//   worldW    card width in world units (worldWk = multiples of the host radius, used for the Sun)
+//   minUi/maxUi  size clamps (1.0 = design size at 1080p)
+//   orbit     k * hostRadius + add = orbit radius; tilt (rad, plane tilted about X); node (rad, plane then turned
+//             about Y = a different axis); phase (rad); speed (rad/s, negative = other direction, 0 = parked)
+//   title     optional card title override (used by BlankWidget placeholders)
+//
+//   speedScale below multiplies EVERY orbit speed at once.
+Item {
+    id: wlayer
+
+    // NOT `required`: with a required property the slots' `rig: wlayer.rig` bindings were evaluated
+    // once while it was still unset (-> undefined) and never refreshed (seen on Qt 6.4).
+    property var rig: null
+    property real speedScale: 1.0
+    z: 29000
+    visible: rig !== null && rig.active
+
+    readonly property var defs: [
+        // ---- THE SUN: time (4 widgets, 4 different planes, mixed directions) ----
+        { id: "sun_clock",    host: "sun", source: "ClockWidget.qml",     show: "always", worldWk: 1.25, minUi: 0.50, maxUi: 1.4,
+          orbit: { k: 1.55, add: 140, tilt:  0.30, node: 0.0, phase: 0.0, speed:  0.16 } },
+        { id: "sun_loop",     host: "sun", source: "LoopWidget.qml",      show: "focus",  worldWk: 1.15, minUi: 0.50, maxUi: 1.4,
+          orbit: { k: 1.75, add: 160, tilt: -0.55, node: 0.9, phase: 2.1, speed: -0.13 } },
+        { id: "sun_uptime",   host: "sun", source: "UptimeWidget.qml",    show: "focus",  worldWk: 0.97, minUi: 0.50, maxUi: 1.4,
+          orbit: { k: 1.60, add: 150, tilt:  0.85, node: 1.8, phase: 4.2, speed:  0.21 } },
+        { id: "sun_calendar", host: "sun", source: "DateWorldWidget.qml", show: "focus",  worldWk: 1.15, minUi: 0.50, maxUi: 1.4,
+          orbit: { k: 1.85, add: 170, tilt: -0.20, node: 2.6, phase: 5.4, speed: -0.10 } },
+        { id: "sun_dial",     host: "sun", source: "serp/SunClock.qml",  show: "focus",  worldWk: 0.90, minUi: 0.50, maxUi: 1.4,
+          orbit: { k: 1.68, add: 150, tilt: -0.40, node: 3.4, phase: 3.0, speed:  0.12 } },
+
+        // ---- TIMBER HEARTH: workspaces ----
+        { id: "th_workspaces", host: "timber_hearth", source: "WorkspacesWidget.qml", show: "focus", worldW: 68, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.9, add: 30, tilt: 0.25, node: 0.0, phase: 0.6, speed: 0.28 } },
+
+        // ---- TIMBER HEARTH: signalscope (equip / stow) ----
+        { id: "th_signalscope", host: "timber_hearth", source: "SignalscopeWidget.qml", show: "focus", worldW: 60, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 2.3, add: 35, tilt: -0.40, node: 1.3, phase: 3.0, speed: -0.22 } },
+
+        // ---- ATTLEROCK: scratchpad ----
+        { id: "att_notes", host: "attlerock", source: "NotesWidget.qml", show: "focus", worldW: 54, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 3.0, add: 30, tilt: -0.20, node: 0.0, phase: 1.8, speed: 0.34 } },
+
+        // ---- PLACEHOLDERS (BlankWidget): swap `source` once a role is decided ----
+        // Sun Station (small): 1
+        { id: "ss_a", host: "sun_station", source: "BlankWidget.qml", title: "SUN STATION", show: "focus", worldW: 50, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.4, add: 40, tilt: 0.40, node: 0.0, phase: 0.0, speed: 0.30 } },
+
+        // Ash Twin / Ember Twin (small): 2 each
+        { id: "at_a", host: "ash_twin", source: "serp/AshTwinBattery.qml", title: "BATTERY", show: "focus", worldW: 90, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.0, add: 40, tilt: 0.30, node: 0.0, phase: 0.0, speed: 0.26 } },
+        { id: "at_b", host: "ash_twin", source: "BlankWidget.qml", title: "ASH TWIN B", show: "focus", worldW: 70, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.3, add: 45, tilt: -0.70, node: 1.6, phase: 3.1, speed: -0.19 } },
+        { id: "et_a", host: "ember_twin", source: "serp/EmberTwinBattery.qml", title: "BATTERY", show: "focus", worldW: 70, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.0, add: 40, tilt: -0.30, node: 0.5, phase: 1.0, speed: 0.24 } },
+        { id: "et_b", host: "ember_twin", source: "serp/EmberTwinMusic.qml", show: "focus", worldW: 120, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.3, add: 45, tilt: 0.75, node: 2.2, phase: 4.1, speed: -0.17 } },
+        { id: "et_c", host: "ember_twin", source: "serp/EmberTwinLyrics.qml", show: "focus", worldW: 120, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.6, add: 50, tilt: -0.15, node: 3.0, phase: 5.2, speed: 0.15 } },
+
+        // Brittle Hollow (big): 3
+        { id: "bh_a", host: "brittle_hollow", source: "WeatherWidget.qml", title: "WEATHER", show: "focus", worldW: 110, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.6, add: 50, tilt: 0.20, node: 0.0, phase: 0.0, speed: 0.20 } },
+        { id: "bh_b", host: "brittle_hollow", source: "BlankWidget.qml", title: "BRITTLE HOLLOW B", show: "focus", worldW: 110, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.85, add: 55, tilt: -0.65, node: 1.1, phase: 2.1, speed: -0.15 } },
+        { id: "bh_c", host: "brittle_hollow", source: "BlankWidget.qml", title: "BRITTLE HOLLOW C", show: "focus", worldW: 110, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 2.1, add: 60, tilt: 0.90, node: 2.3, phase: 4.2, speed: 0.12 } },
+
+        // Hollow's Lantern (small): 1
+        { id: "hl_a", host: "hollows_lantern", source: "BlankWidget.qml", title: "HOLLOW'S LANTERN", show: "focus", worldW: 55, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.4, add: 35, tilt: 0.35, node: 0.0, phase: 0.0, speed: 0.30 } },
+
+        // Giant's Deep (big): 3
+        { id: "gd_a", host: "giants_deep", source: "serp/GiantsDeepWeather.qml", title: "WEATHER", show: "focus", worldW: 200, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.5, add: 60, tilt: 0.15, node: 0.0, phase: 0.0, speed: 0.17 } },
+        { id: "gd_b", host: "giants_deep", source: "BlankWidget.qml", title: "GIANT'S DEEP B", show: "focus", worldW: 200, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.7, add: 70, tilt: -0.60, node: 1.0, phase: 2.1, speed: -0.13 } },
+        { id: "gd_c", host: "giants_deep", source: "BlankWidget.qml", title: "GIANT'S DEEP C", show: "focus", worldW: 200, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.9, add: 80, tilt: 0.95, node: 2.2, phase: 4.2, speed: 0.10 } },
+
+        // Dark Bramble (big): 3
+        { id: "db_a", host: "dark_bramble", source: "serp/DarkBrambleVisualiser.qml", title: "VISUALISER", show: "focus", worldW: 170, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.5, add: 50, tilt: -0.20, node: 0.4, phase: 0.0, speed: 0.18 } },
+        { id: "db_b", host: "dark_bramble", source: "serp/DarkBrambleDisc.qml", show: "focus", worldW: 130, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.7, add: 60, tilt: 0.70, node: 1.5, phase: 2.1, speed: -0.14 } },
+        { id: "db_c", host: "dark_bramble", source: "serp/DarkBrambleLyrics.qml", show: "focus", worldW: 170, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 1.9, add: 70, tilt: -0.90, node: 2.6, phase: 4.2, speed: 0.11 } },
+
+        // The Interloper (small, comet): 2
+        { id: "in_a", host: "interloper", source: "RumorWidget.qml", title: "SHIP LOG", show: "focus", worldW: 70, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.2, add: 30, tilt: 0.30, node: 0.0, phase: 0.0, speed: 0.25 } },
+        { id: "in_b", host: "interloper", source: "BlankWidget.qml", title: "INTERLOPER B", show: "focus", worldW: 70, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.5, add: 35, tilt: -0.75, node: 1.7, phase: 3.1, speed: -0.18 } },
+
+        // Quantum Moon (small): 1 (follows the moon when it hops hosts)
+        { id: "qm_a", host: "quantum_moon", source: "BlankWidget.qml", title: "QUANTUM MOON", show: "focus", worldW: 65, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 2.2, add: 30, tilt: 0.40, node: 0.0, phase: 0.0, speed: 0.28 } }
+
+        // ---- NOCTALIA PLUGIN (example, see NoctaliaPlugin.qml / noctalia-compat/README.md) ----
+        // , { id: "my-plugin", kind: "noctalia", dir: "/home/you/.config/noctalia/plugins/my-plugin",
+        //     entry: "DesktopWidget.qml", settings: {}, host: "giants_deep", show: "focus", worldW: 120,
+        //     orbit: { k: 1.6, add: 40, tilt: 0.2, node: 1.0, phase: 0, speed: 0.08 } }
+    ]
+
+    Repeater {
+        // slots are only created once the rig exists, so slot.rig is valid from the first frame
+        model: wlayer.rig ? wlayer.defs : []
+        delegate: WidgetSlot {
+            required property var modelData
+            rig: wlayer.rig
+            speedScale: wlayer.speedScale
+            def: modelData
+        }
+    }
+}

@@ -1,0 +1,10 @@
+WellbeingState 1.0 WellbeingState.qml
+WellbeingHeader 1.0 WellbeingHeader.qml
+WellbeingStatsRow 1.0 WellbeingStatsRow.qml
+WellbeingMidRow 1.0 WellbeingMidRow.qml
+WellbeingBottomPanel 1.0 WellbeingBottomPanel.qml
+WellbeingDailyView 1.0 WellbeingDailyView.qml
+WellbeingWeekView 1.0 WellbeingWeekView.qml
+WellbeingWeekChart 1.0 WellbeingWeekChart.qml
+WellbeingWeekDetails 1.0 WellbeingWeekDetails.qml
+WellbeingMetric 1.0 WellbeingMetric.qml

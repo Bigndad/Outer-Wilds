@@ -1,0 +1,40 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import "../"
+
+// Widget control panel as a slide-in strip on the right edge, ABOVE every window (Overlay layer).
+// The rest of the screen stays free, so the solar system behind it (on an empty workspace) previews every change live.
+//   toggle:  qs -c outerwilds ipc call settings toggle        (also: show / hide)
+// Esc or the X closes it. Needs keyboard focus only for Esc (OnDemand: it takes focus when clicked).
+Scope {
+    id: root
+    property bool open: false
+
+    IpcHandler {
+        target: "settings"
+        function toggle(): void { root.open = !root.open; }
+        function show(): void { root.open = true; }
+        function hide(): void { root.open = false; }
+    }
+
+    onOpenChanged: if (!open) WidgetConfig.previewId = ""
+
+    PanelWindow {
+        visible: root.open
+        color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "outerwilds-settings"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        anchors { top: true; bottom: true; right: true }
+        implicitWidth: 480
+
+        SettingsPanel {
+            anchors.fill: parent
+            onCloseRequested: root.open = false
+            onFlyRequested: (planetId) => { if (planetId !== "") NoctaliaBridge.planetRequested(planetId, "settings"); }
+        }
+    }
+}

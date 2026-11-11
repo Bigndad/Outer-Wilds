@@ -36,3 +36,10 @@ AppLauncher 1.0 launcher/AppLauncher.qml
 Scaler 1.0 launcher/Scaler.qml
 MatugenColors 1.0 launcher/MatugenColors.qml
 singleton Sensors 1.0 data/Sensors.qml
+WallpaperWindow 1.0 widgets/serp/panels/WallpaperWindow.qml
+ScreentimeWindow 1.0 widgets/serp/panels/ScreentimeWindow.qml
+# widget settings panel
+singleton WidgetConfig 1.0 data/WidgetConfig.qml
+WidgetConfigStore 1.0 data/WidgetConfigStore.qml
+SettingsPanel 1.0 settings/SettingsPanel.qml
+SettingsWindow 1.0 settings/SettingsWindow.qml

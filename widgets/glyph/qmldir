@@ -1,0 +1,15 @@
+singleton GlyphTheme 1.0 GlyphTheme.qml
+GlyphCard 1.0 GlyphCard.qml
+GlyphDots 1.0 GlyphDots.qml
+GlyphRing 1.0 GlyphRing.qml
+GlyphSeg 1.0 GlyphSeg.qml
+GlyphLabel 1.0 GlyphLabel.qml
+GlyphRingStat 1.0 GlyphRingStat.qml
+GlyphMatrix 1.0 GlyphMatrix.qml
+GlyphClock 1.0 GlyphClock.qml
+GlyphCpu 1.0 GlyphCpu.qml
+GlyphRam 1.0 GlyphRam.qml
+GlyphGpu 1.0 GlyphGpu.qml
+GlyphSystem 1.0 GlyphSystem.qml
+GlyphCal 1.0 GlyphCal.qml
+GlyphFocus 1.0 GlyphFocus.qml

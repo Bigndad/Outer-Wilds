@@ -92,10 +92,17 @@ Item {
         MapData.entryId = entries[i].eid;
     }
 
+    // "Edit Widgets": close the map (its backdrop would hide the scene) and open the widget panel over the solar system
+    function editWidgets() {
+        MapData.hide();
+        WidgetConfig.panelOpen = true;
+    }
+
     // ---------------- keys (MapHost forwards every key here and accepts it) ----------------
     function handleKey(event) {
         const k = event.key;
         if (k === Qt.Key_R) { if (!event.isAutoRepeat) MapData.enterRumor(); return; }
+        if (k === Qt.Key_E) { if (!event.isAutoRepeat) editWidgets(); return; }
         if (MapData.pageOpen) {
             if (k === Qt.Key_Up)         moveEntry(-1);
             else if (k === Qt.Key_Down)  moveEntry(1);
@@ -260,12 +267,22 @@ Item {
         }
 
         MapButton {
+            id: rumorBtn
             x: view.width - width - Math.round(48 * view.bu)
             y: Math.round(40 * view.bu)
             bu: view.bu
             label: "Rumor Mode"
             hint: "R"
             onClicked: MapData.enterRumor()
+        }
+
+        MapButton {
+            x: rumorBtn.x - width - Math.round(16 * view.bu)
+            y: rumorBtn.y
+            bu: view.bu
+            label: "Edit Widgets"
+            hint: "E"
+            onClicked: view.editWidgets()
         }
     }
 

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "globalSpeed": 1,
+  "overrides": {
+    "sun_loop": {
+      "enabled": false
+    }
+  },
+  "extras": []
+}

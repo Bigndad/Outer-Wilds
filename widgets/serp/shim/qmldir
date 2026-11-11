@@ -4,7 +4,6 @@ singleton DateTime 1.0 DateTime.qml
 singleton Weather 1.0 Weather.qml
 singleton Location 1.0 Location.qml
 singleton I18n 1.0 I18n.qml
-singleton Caching 1.0 Caching.qml
 singleton SystemInfo 1.0 SystemInfo.qml
 singleton Cava 1.0 Cava.qml
 singleton UPower 1.0 UPower.qml
@@ -27,3 +26,23 @@ SubscriptionGate 1.0 SubscriptionGate.qml
 ClickButton 1.0 ClickButton.qml
 LyricsPicker 1.0 LyricsPicker.qml
 GlassFill 1.0 GlassFill.qml
+singleton SysData 1.0 SysData.qml
+singleton FocusTimer 1.0 FocusTimer.qml
+singleton TimerState 1.0 TimerState.qml
+singleton DesktopMenuController 1.0 DesktopMenuController.qml
+SystemUsageCard 1.0 SystemUsageCard.qml
+FocusPanel 1.0 FocusPanel.qml
+FocusPomodoroPanel 1.0 FocusPomodoroPanel.qml
+FocusStopwatchPanel 1.0 FocusStopwatchPanel.qml
+FocusTimeCard 1.0 FocusTimeCard.qml
+FocusTimerControls 1.0 FocusTimerControls.qml
+FocusTimerPanel 1.0 FocusTimerPanel.qml
+TimeSelector 1.0 TimeSelector.qml
+singleton Sounds 1.0 Sounds.qml
+singleton Config 1.0 Config.qml
+singleton Wallpaper 1.0 Wallpaper.qml
+CanvasIconButton 1.0 CanvasIconButton.qml
+Input 1.0 Input.qml
+Switch 1.0 Switch.qml
+GuideTab 1.0 GuideTab.qml
+singleton Caching 1.0 Caching.qml

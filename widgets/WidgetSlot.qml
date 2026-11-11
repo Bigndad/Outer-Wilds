@@ -53,7 +53,7 @@ Item {
 
         let target = 0;
         if (hostOk) {
-            if (slot.def.show === "always") target = 1;
+            if (slot.def.show === "always" || WidgetConfig.previewId === slot.def.id) target = 1;   // previewId: the widget being edited in the settings panel
             else target = Math.max(rg.activeFocusId === slot.def.host ? 1 : 0, clamp((proj.screenR - 150) / 90, 0, 1));
         }
         presence += (target - presence) * Math.min(1, 7 * dt);
@@ -63,7 +63,14 @@ Item {
         if (!hostOk || presence < 0.004 || nova <= 0) { slot.visible = false; return; }
 
         const hostR = slot.def.host === "sun" ? rg.sunRadius : host.r;
-        const R = hostR * o.k + o.add;
+        // a widget moved to another planet from the settings panel: scale its absolute sizes by (the square root of) the radius ratio
+        let rf = 1;
+        if (slot.def.baseHost && slot.def.baseHost !== slot.def.host) {
+            const bb = rg.bodyCoords[slot.def.baseHost];
+            const bR = slot.def.baseHost === "sun" ? rg.sunRadius : (bb ? bb.r : 0);
+            if (bR > 0) rf = Math.sqrt(hostR / bR);   // sqrt: halfway between "same size" and "same proportions"
+        }
+        const R = hostR * o.k + o.add * rf;
         const ca = Math.cos(angle), sa = Math.sin(angle);
         // circle in its plane, tilted about X, then the whole plane turned about Y by `node`
         // (node = 0 is the old behaviour), so several widgets on one planet can use different axes
@@ -87,7 +94,7 @@ Item {
 
         // size: world width -> pixels, clamped, quantised so text stays crisp; the rest is a tiny scale
         const sc = Math.min(w, h) / 1080;
-        const worldW = slot.def.worldWk !== undefined ? slot.def.worldWk * hostR : slot.def.worldW;
+        const worldW = slot.def.worldWk !== undefined ? slot.def.worldWk * hostR : slot.def.worldW * rf;
         const raw = p.scale * worldW / item.designW;
         const minUi = (slot.def.minUi !== undefined ? slot.def.minUi : 0.4) * sc;
         const maxUi = (slot.def.maxUi !== undefined ? slot.def.maxUi : 1.5) * sc;
