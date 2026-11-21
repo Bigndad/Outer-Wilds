@@ -88,7 +88,29 @@ QtObject {
         "guide.wellbeing.today": "Today",
         "guide.wellbeing.week": "Week",
         "guide.wellbeing.week_overview": "Week overview",
-        "guide.wellbeing.week_total": "Week total"
+        "guide.wellbeing.week_total": "Week total",
+        "widgets.github.commit": "commit",
+        "widgets.github.commits": "commits",
+        "widgets.github.enter_username": "Enter a GitHub username",
+        "widgets.github.error": "Error",
+        "widgets.github.fetch_error": "Could not fetch user @{user}",
+        "widgets.github.fetching": "Fetching GitHub contributions...",
+        "widgets.github.no_contributions": "No contributions found",
+        "widgets.github.no_day_selected": "No day selected",
+        "widgets.github.set_user": "Set user",
+        "widgets.types.user": "User",
+        "weather.months.jan": "Jan",
+        "weather.months.feb": "Feb",
+        "weather.months.mar": "Mar",
+        "weather.months.apr": "Apr",
+        "weather.months.may": "May",
+        "weather.months.jun": "Jun",
+        "weather.months.jul": "Jul",
+        "weather.months.aug": "Aug",
+        "weather.months.sep": "Sep",
+        "weather.months.oct": "Oct",
+        "weather.months.nov": "Nov",
+        "weather.months.dec": "Dec"
 })
     function t(key, params) {
         var s = strings[key] !== undefined ? strings[key] : key;

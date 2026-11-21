@@ -24,4 +24,7 @@ Singleton {
         command: ["mkdir", "-p", root.cacheRoot + "/wallpaper", root.runRoot + "/wallpaper", root.runRoot + "/focustime",
                   root.runRoot + "/music", root.runRoot + "/log", root.stateRoot + "/focustime"]
     }
+
+    // added by port_anserin.py
+    readonly property string anserinDir: serpantinumDir   // user card runs <anserinDir>/scripts/...
 }

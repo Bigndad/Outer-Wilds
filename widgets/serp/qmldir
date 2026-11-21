@@ -16,3 +16,14 @@ AshTwinTimer 1.0 AshTwinTimer.qml
 GiantsDeepTimer 1.0 GiantsDeepTimer.qml
 GiantsDeepStopwatch 1.0 GiantsDeepStopwatch.qml
 QuantumMoonWeather 1.0 QuantumMoonWeather.qml
+AnserinClockDigital 1.0 AnserinClockDigital.qml
+AnserinClockMaterial 1.0 AnserinClockMaterial.qml
+AnserinClockMinimal 1.0 AnserinClockMinimal.qml
+AnserinClockLockscreen 1.0 AnserinClockLockscreen.qml
+AnserinClockStretched 1.0 AnserinClockStretched.qml
+AnserinUser 1.0 AnserinUser.qml
+AnserinGithub 1.0 AnserinGithub.qml
+AnserinImageRounded 1.0 AnserinImageRounded.qml
+AnserinImageRect 1.0 AnserinImageRect.qml
+AnserinImageRound 1.0 AnserinImageRound.qml
+AnserinText 1.0 AnserinText.qml

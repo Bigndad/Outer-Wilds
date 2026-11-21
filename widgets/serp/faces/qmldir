@@ -1,3 +1,14 @@
 UsageFaceBase 1.0 UsageFaceBase.qml
 UsageFaceCircleBase 1.0 UsageFaceCircleBase.qml
 TimerFace 1.0 TimerFace.qml
+ClockFaceDigital 1.0 ClockFaceDigital.qml
+ClockFaceLockscreen 1.0 ClockFaceLockscreen.qml
+ClockFaceMaterial 1.0 ClockFaceMaterial.qml
+ClockFaceMinimal 1.0 ClockFaceMinimal.qml
+ClockFaceStretched 1.0 ClockFaceStretched.qml
+ImageFaceRect 1.0 ImageFaceRect.qml
+ImageFaceRound 1.0 ImageFaceRound.qml
+ImageFaceRounded 1.0 ImageFaceRounded.qml
+TextFace 1.0 TextFace.qml
+UserFace 1.0 UserFace.qml
+GithubFace 1.0 GithubFace.qml

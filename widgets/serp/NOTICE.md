@@ -3,3 +3,8 @@ are copies from Serpantinum by ilyamiro (https://github.com/ilyamiro/serpantinum
 (shim/I18n.qml is generated from its en.json). assets/fonts holds Symbols Nerd Font Mono (MIT).
 Fine for your own desktop; if you publish or distribute your Outer Wilds shell with these files, the AGPL applies to that distribution.
 Everything else here (SerpCard, wrappers, the other shim singletons) is new glue.
+
+Anserin faces (faces/ClockFaceDigital, ClockFaceLockscreen, ClockFaceMaterial, ClockFaceMinimal, ClockFaceStretched,
+ImageFace*, TextFace, UserFace, GithubFace and shim/MaterialDigitGrid, ImageBox, NumberSelector) are copies from
+Anserin by lukpednoi (https://github.com/lukpednoi/Anserin, a Serpantinum fork), AGPL-3.0-or-later, with import lines
+and a few zero-padding fixes changed. Their wrappers (Anserin*.qml), shim/WallpaperMedia.qml and scripts/ are new glue.

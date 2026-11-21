@@ -4,7 +4,200 @@
   "overrides": {
     "sun_loop": {
       "enabled": false
+    },
+    "x1": {
+      "host": "brittle_hollow",
+      "enabled": false
+    },
+    "x2": {
+      "host": "brittle_hollow",
+      "enabled": false
+    },
+    "th_workspaces": {
+      "enabled": false
+    },
+    "th_signalscope": {
+      "enabled": false
+    },
+    "x3": {
+      "enabled": false
+    },
+    "sun_clock": {
+      "enabled": false
+    },
+    "sun_uptime": {
+      "enabled": false
+    },
+    "sun_calendar": {
+      "enabled": false
+    },
+    "sun_dial": {
+      "enabled": false
+    },
+    "ss_a": {
+      "enabled": false
+    },
+    "ss_b": {
+      "enabled": false
+    },
+    "at_a": {
+      "enabled": false
+    },
+    "at_b": {
+      "enabled": false
+    },
+    "et_a": {
+      "enabled": false
+    },
+    "et_b": {
+      "enabled": false
+    },
+    "et_c": {
+      "enabled": false
+    },
+    "x4": {
+      "enabled": false
+    },
+    "att_wall": {
+      "enabled": false
+    },
+    "bh_a": {
+      "enabled": false
+    },
+    "bh_b": {
+      "enabled": false
+    },
+    "bh_c": {
+      "enabled": false
+    },
+    "hl_a": {
+      "enabled": false
+    },
+    "gd_a": {
+      "enabled": false
+    },
+    "gd_c": {
+      "enabled": false
+    },
+    "gd_b": {
+      "enabled": false
+    },
+    "att_notes": {
+      "enabled": false
+    },
+    "x6": {
+      "enabled": false
+    },
+    "x5": {
+      "enabled": false
+    },
+    "an_th_github": {
+      "enabled": false
     }
   },
-  "extras": []
+  "extras": [
+    {
+      "id": "x1",
+      "host": "timber_hearth",
+      "source": "glyph/GlyphMatrix.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.7259225116215927,
+        "node": 2.399963,
+        "phase": 2.399963,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x2",
+      "host": "timber_hearth",
+      "source": "glyph/GlyphSystem.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8582206870483817,
+        "node": 1.7999260000000001,
+        "phase": 4.799926,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x3",
+      "host": "timber_hearth",
+      "source": "serp/EmberTwinMusic.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8999308083397464,
+        "node": 0.9167036928204144,
+        "phase": 0.9167036928204144,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x4",
+      "host": "timber_hearth",
+      "source": "serp/AnserinClockDigital.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.5409720978568493,
+        "node": 0.31666669282041404,
+        "phase": 3.316666692820414,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x5",
+      "host": "timber_hearth",
+      "source": "serp/AnserinClockMaterial.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.2603674416388043,
+        "node": 2.7166296928204137,
+        "phase": 5.716629692820414,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x6",
+      "host": "timber_hearth",
+      "source": "serp/AnserinUser.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.02231780029478176,
+        "node": 1.8334073856408288,
+        "phase": 1.8334073856408288,
+        "speed": 0.2
+      },
+      "title": "USER"
+    }
+  ]
 }

@@ -51,6 +51,18 @@ Item {
           orbit: { k: 3.0, add: 30, tilt: -0.20, node: 0.0, phase: 1.8, speed: 0.34 } },
         { id: "att_wall", host: "attlerock", source: "WallpaperCard.qml", title: "WALLPAPER", show: "focus", worldW: 54, minUi: 0.5, maxUi: 1.4,
           orbit: { k: 3.6, add: 35, tilt: 0.35, node: 1.2, phase: 4.6, speed: -0.28 } },
+        // ---- ANSERIN faces (port_anserin.py) ----
+        { id: "an_sun_digital",  host: "sun", source: "serp/AnserinClockDigital.qml",  show: "focus", worldWk: 1.00, minUi: 0.50, maxUi: 1.4,
+          orbit: { k: 1.95, add: 175, tilt:  0.55, node: 4.1, phase: 1.0, speed: -0.11 } },
+        { id: "an_sun_material", host: "sun", source: "serp/AnserinClockMaterial.qml", show: "focus", worldWk: 0.90, minUi: 0.50, maxUi: 1.4,
+          orbit: { k: 2.05, add: 185, tilt: -0.65, node: 5.0, phase: 4.6, speed:  0.09 } },
+        { id: "an_th_github",    host: "timber_hearth", source: "serp/AnserinGithub.qml", title: "GITHUB", show: "focus", worldW: 140, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 2.7, add: 40, tilt: 0.55, node: 2.4, phase: 5.0, speed: 0.18 } },
+        { id: "an_att_user",     host: "attlerock", source: "serp/AnserinUser.qml", title: "USER", show: "focus", worldW: 60, minUi: 0.5, maxUi: 1.4,
+          orbit: { k: 4.2, add: 40, tilt: -0.50, node: 2.4, phase: 2.2, speed: 0.22 } },
+        { id: "an_hl_image",     host: "hollows_lantern", source: "serp/AnserinImageRounded.qml", show: "focus", worldW: 70, minUi: 0.5, maxUi: 1.3,
+          orbit: { k: 3.0, add: 40, tilt: -0.40, node: 1.5, phase: 2.5, speed: -0.20 } },
+
 
         // ---- PLACEHOLDERS (BlankWidget): swap `source` once a role is decided ----
         // Sun Station (small): 1

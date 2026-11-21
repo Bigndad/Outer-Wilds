@@ -14,10 +14,16 @@ ShellRoot {
     ScreentimeWindow { }
     WallpaperWindow { }
 
+    // global-bind IPC for Hyprland: map, rumor, scene (HYPR-COMPAT)
+    HyprIpc { }
+
     Variants {
         model: Quickshell.screens
 
         PanelWindow {
+            id: sceneWin
+            readonly property bool sceneHere: NoctaliaBridge.isSceneScreen(modelData ? modelData.name : "")
+            visible: sceneHere
             property var modelData
             screen: modelData
 
@@ -34,9 +40,11 @@ ShellRoot {
             }
 
             color: "transparent"
-
-            CameraRig {
+            Loader {   // HYPR-COMPAT: no scene on the headless output
                 anchors.fill: parent
+                focus: true
+                active: sceneWin.sceneHere
+                sourceComponent: Component { CameraRig { anchors.fill: parent } }
             }
         }
     }

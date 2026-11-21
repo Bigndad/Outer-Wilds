@@ -16,6 +16,36 @@ Singleton {
     // True only when the active workspace has 0 tiled/floating windows and no fullscreen window
     property bool desktopVisible: true
 
+    // ---- HYPR-COMPAT: only monitors whose name does NOT match skipPattern show the scene (the headless /
+    // streaming output must not render a second solar system). desktopVisible = some scene monitor is
+    // looking at an empty workspace with no fullscreen window.
+    property string skipPattern: "^HEADLESS"
+    function isSceneScreen(name) { return !(new RegExp(root.skipPattern)).test(name || ""); }
+
+    // `hyprctl -j monitors` text + `hyprctl -j workspaces` text -> { visible, windows } or null when unreadable
+    function sceneState(monText, wsText) {
+        let mons, wss;
+        try { mons = JSON.parse(monText); wss = JSON.parse(wsText); } catch (e) { return null; }
+        if (!Array.isArray(mons) || !Array.isArray(wss)) return null;
+        let anyEmpty = false, shownWins = -1;
+        for (const m of mons) {
+            if (!root.isSceneScreen(m.name)) continue;
+            const id = m.activeWorkspace ? m.activeWorkspace.id : undefined;
+            const ws = wss.find(w => w.id === id);
+            const wins = ws ? (ws.windows | 0) : 0;
+            const fs = ws ? !!ws.hasfullscreen : false;
+            if (shownWins < 0 || m.focused) shownWins = wins;
+            if (wins === 0 && !fs) anyEmpty = true;
+        }
+        if (shownWins < 0) return null;
+        return { visible: anyEmpty, windows: shownWins };
+    }
+    function applyState(st) {
+        if (!st) return;
+        root.lastWindows = st.windows;
+        root.desktopVisible = st.visible;
+    }
+
     readonly property var panelPlanets: ({
         "launcher":       "dark_bramble",
         "session":        "sun_station",
@@ -55,22 +85,18 @@ Singleton {
 
     Process {
         id: wsProbe
-        command: ["hyprctl", "-j", "activeworkspace"]
+        command: ["sh", "-c", "hyprctl -j monitors; echo @@@; hyprctl -j workspaces"]
         stdout: StdioCollector {
             onStreamFinished: {
-                const wins = parseInt((text.match(/"windows"\s*:\s*(\d+)/) || [])[1]);
-                const fs = /"hasfullscreen"\s*:\s*true/.test(text);
-                if (!isNaN(wins)) {
-                    root.lastWindows = wins;
-                    root.desktopVisible = (wins === 0 && !fs);
-                }
+                const p = text.split("@@@");
+                root.applyState(root.sceneState(p[0] || "", p[1] || ""));
             }
         }
     }
 
     Process {
         id: probe
-        command: ["sh", "-c", "noctalia msg status; echo @@@; hyprctl -j activeworkspace"]
+        command: ["sh", "-c", "noctalia msg status; echo @@@; hyprctl -j monitors; echo @@@; hyprctl -j workspaces"]
         stdout: StdioCollector {
             onStreamFinished: root.handle(text)
         }
@@ -79,13 +105,8 @@ Singleton {
     function handle(out) {
         const parts = out.split("@@@");
         const panel = ((parts[0] || "").match(/"activePanelId"\s*:\s*"([^"]*)"/) || [])[1] || "";
-        const wins = parseInt(((parts[1] || "").match(/"windows"\s*:\s*(\d+)/) || [])[1]);
-        const fs = /"hasfullscreen"\s*:\s*true/.test(parts[1] || "");
         root.lastPanel = panel;
-        if (!isNaN(wins)) {
-            root.lastWindows = wins;
-            root.desktopVisible = (wins === 0 && !fs);
-        }
+        root.applyState(root.sceneState(parts[1] || "", parts[2] || ""));
 
         if (panel === "") return;
         if (panel === "launcher" && root.replaceLauncher) {

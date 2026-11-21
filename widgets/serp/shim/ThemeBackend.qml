@@ -39,4 +39,11 @@ QtObject {
     property color overlay2: "#968A74"
     property color pink: "#C98F86"
     property color sapphire: "#6FA3B0"
+
+    // added by port_anserin.py
+    readonly property color secondaryContainer: "#3a3324"
+    readonly property color primaryContainer: "#5a4515"
+    readonly property color surfaceVariant: "#2a2c36"
+    readonly property real glassElementOpacity: 0.92
+    property var availableFontPaths: ({})
 }
