@@ -17,6 +17,7 @@ Item {
     readonly property color cGold: "#D4AF37"
     readonly property color cDim: "#8A7F66"
     readonly property color cBg: "#E007080C"
+    property color accent: cGold        // corner brackets (a widget may set its own, e.g. the weather card)
 
     width: Math.round(designW * ui)
     height: Math.round(designH * ui)
@@ -40,13 +41,13 @@ Item {
             width: parent.width
             height: Math.max(1, Math.round(card.ui * 1.5))
             y: atBottom ? parent.height - height : 0
-            color: card.cGold
+            color: card.accent
         }
         Rectangle {
             height: parent.height
             width: Math.max(1, Math.round(card.ui * 1.5))
             x: atRight ? parent.width - width : 0
-            color: card.cGold
+            color: card.accent
         }
     }
     Bracket { }

@@ -28,7 +28,10 @@ Singleton {
         { label: "DUBAI", offsetMin: 240 }
     ]
 
+    signal workspaceSwitchRequested(int id)      // for a live adapter (SystemLive does not act on it yet)
+
     function switchWorkspace(id) {
+        workspaceSwitchRequested(id);
         activeWorkspace = id;
         // live: Hyprland.dispatch("workspace " + id)
     }

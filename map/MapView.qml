@@ -82,7 +82,7 @@ Item {
     readonly property var paragraphs: {
         if (detail && detail.text.length > 0) return detail.text;
         const b = selBody;
-        return ["NO SIGNAL.", (b ? b.role : "This planet") + " has nothing to show yet."];
+        return ["NO SIGNAL.", (b ? MapData.roleOf(b.id) : "This planet") + " has nothing to show yet."];
     }
 
     function runAction() { if (entry) MapData.runAction(selId, entry.eid); }
@@ -99,26 +99,28 @@ Item {
     }
 
     // ---------------- keys (MapHost forwards every key here and accepts it) ----------------
+    // every key here is a Keybinds action, so all of them can be changed in the Control Centre (KEYS tab)
     function handleKey(event) {
-        const k = event.key;
-        if (k === Qt.Key_R) { if (!event.isAutoRepeat) MapData.enterRumor(); return; }
-        if (k === Qt.Key_E) { if (!event.isAutoRepeat) editWidgets(); return; }
+        const m = (id) => Keybinds.matches(id, event);
+        const fresh = !event.isAutoRepeat;
+        if (m("rumorMode")) { if (fresh) MapData.enterRumor(); return; }
+        if (m("edit")) { if (fresh) editWidgets(); return; }
         if (MapData.pageOpen) {
-            if (k === Qt.Key_Up)         moveEntry(-1);
-            else if (k === Qt.Key_Down)  moveEntry(1);
-            else if (k === Qt.Key_Left)  MapData.move("left");
-            else if (k === Qt.Key_Right) MapData.move("right");
-            else if (!event.isAutoRepeat && (k === Qt.Key_Return || k === Qt.Key_Enter)) runAction();
-            else if (!event.isAutoRepeat && (k === Qt.Key_Escape || k === Qt.Key_Backspace)) MapData.closePage();
+            if (m("navUp"))              moveEntry(-1);
+            else if (m("navDown"))       moveEntry(1);
+            else if (m("navLeft"))       MapData.move("left");
+            else if (m("navRight"))      MapData.move("right");
+            else if (fresh && m("select"))  runAction();
+            else if (fresh && m("backKey")) MapData.closePage();
         } else {
-            if (k === Qt.Key_Left)       MapData.move("left");
-            else if (k === Qt.Key_Right) MapData.move("right");
-            else if (k === Qt.Key_Up)    MapData.move("up");
-            else if (k === Qt.Key_Down)  MapData.move("down");
-            else if (k === Qt.Key_Plus || k === Qt.Key_Equal || k === Qt.Key_PageUp)    MapData.zoomBy(0.34);
-            else if (k === Qt.Key_Minus || k === Qt.Key_Underscore || k === Qt.Key_PageDown) MapData.zoomBy(-0.34);
-            else if (!event.isAutoRepeat && (k === Qt.Key_Return || k === Qt.Key_Enter || k === Qt.Key_Space)) MapData.openPage();
-            else if (!event.isAutoRepeat && k === Qt.Key_Escape) MapData.hide();
+            if (m("navLeft"))            MapData.move("left");
+            else if (m("navRight"))      MapData.move("right");
+            else if (m("navUp"))         MapData.move("up");
+            else if (m("navDown"))       MapData.move("down");
+            else if (m("zoomIn"))        MapData.zoomBy(0.34);
+            else if (m("zoomOut"))       MapData.zoomBy(-0.34);
+            else if (fresh && m("select"))  MapData.openPage();
+            else if (fresh && m("backKey")) MapData.hide();
         }
     }
 
@@ -258,7 +260,7 @@ Item {
                 font.letterSpacing: 3 * view.bu
             }
             Text {
-                text: (view.selBody ? view.selBody.role.toUpperCase() : "") + "   -   " + (view.live ? view.entries.length + (view.entries.length === 1 ? " ENTRY" : " ENTRIES") : "NO SIGNAL")
+                text: (view.selBody ? MapData.roleOf(view.selBody.id).toUpperCase() : "") + "   -   " + (view.live ? view.entries.length + (view.entries.length === 1 ? " ENTRY" : " ENTRIES") : "NO SIGNAL")
                 color: view.live ? view.cCream : view.cDim
                 font.family: view.fontFamily
                 font.pixelSize: Math.max(10, Math.round(15 * view.bu))
@@ -323,7 +325,7 @@ Item {
         Text {
             x: pageLayer.m
             y: Math.round(34 * view.bu) + Math.round(54 * view.bu)
-            text: view.selBody ? view.selBody.role.toUpperCase() : ""
+            text: view.selBody ? MapData.roleOf(view.selBody.id).toUpperCase() : ""
             color: view.cDim
             font.family: view.fontFamily
             font.pixelSize: Math.max(10, Math.round(15 * view.bu))

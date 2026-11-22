@@ -9,8 +9,10 @@ import ".."
 //  Layers (same split as RumorData / SignalscopeData):
 //    * state      open, pageOpen, selectedId, entryId, zoomTarget, rumorMode ...   (the view only reads / writes these)
 //    * catalog    the planets on the map: where they sit, how they are tinted
-//    * providers  one per planet: entriesFor() = the list (structure only, cheap), describe() = text / picture of one
-//                 entry (live values), actionFor() / runAction() = the button under the picture
+//    * providers  one per FEATURE (clock, workspaces, audio, apps, notes, rumors, memory / disk, sensors). A planet's page
+//                 shows the features of the WIDGETS that sit on it (featuresOf), so moving a Workspaces widget to another
+//                 planet moves the workspace list with it. entriesFor() = the list (structure only, cheap), describe() = text /
+//                 picture of one entry (live values), actionFor() / runAction() = the button under the picture
 //    * mock data  apps and window titles. Live: call setApps() / setWindows() from a live-only file (sketch at the bottom).
 //
 //  IDLE COST: no Timer, nothing runs while the map is closed. Providers are only evaluated by the open view.
@@ -38,7 +40,7 @@ QtObject {
 
     // Planets whose action button works. Everything else shows it dimmed ("READ-ONLY") until its real adapter exists.
     // When an adapter lands, add the id here.
-    property var interactiveIds: ({ ember_twin: true, ash_twin: true, dark_bramble: true })
+    property var interactiveFeatures: ({ audio: true, apps: true })   // features whose entries have a working button
 
     // Planet pictures for the map. false = flat placeholder discs. true = load map_icons/<planet id>.png (transparent
     // render, any size), e.g. map_icons/timber_hearth.png; a planet whose file is missing keeps its placeholder disc.
@@ -159,6 +161,7 @@ QtObject {
     }
 
     Component.onCompleted: {
+        rebuildFeatures();
         if (!mock) return;
         apps = [
             { id: "firefox",      name: "Firefox",       comment: "Browse the web.",                       category: "Internet" },
@@ -177,32 +180,111 @@ QtObject {
         ];
     }
 
+    // ---------------- WHICH WIDGETS ARE WHERE ----------------
+    // widget file -> the feature it shows. Widgets that are not listed (weather, battery, pictures ...) add nothing to a page.
+    readonly property var featureOfSource: ({
+        "ClockWidget.qml": "time", "LoopWidget.qml": "time", "UptimeWidget.qml": "time", "DateWorldWidget.qml": "time",
+        "serp/SunClock.qml": "time", "lucid/SunClock.qml": "time", "glyph/GlyphClock.qml": "time",
+        "serp/AnserinClockDigital.qml": "time", "serp/AnserinClockMaterial.qml": "time", "serp/AnserinClockMinimal.qml": "time",
+        "serp/AnserinClockLockscreen.qml": "time", "serp/AnserinClockStretched.qml": "time",
+        "WorkspacesWidget.qml": "workspaces",
+        "SignalscopeWidget.qml": "audio", "serp/EmberTwinMusic.qml": "audio", "serp/EmberTwinLyrics.qml": "audio",
+        "serp/DarkBrambleDisc.qml": "audio", "serp/DarkBrambleLyrics.qml": "audio", "serp/DarkBrambleVisualiser.qml": "audio",
+        "lucid/DarkBrambleVisualiser.qml": "audio", "glyph/GlyphMatrix.qml": "audio",
+        "AppLauncherWidget.qml": "apps",
+        "NotesWidget.qml": "notes",
+        "RumorWidget.qml": "rumor",
+        "serp/BrittleHollowRam.qml": "memdisk", "serp/BrittleHollowDisk.qml": "memdisk", "glyph/GlyphRam.qml": "memdisk",
+        "serp/HollowsLanternTemp.qml": "temps", "serp/SunStationCpu.qml": "temps", "glyph/GlyphCpu.qml": "temps", "glyph/GlyphGpu.qml": "temps"
+    })
+    readonly property var featureOrder: ["time", "workspaces", "audio", "apps", "notes", "rumor", "memdisk", "temps"]
+    readonly property var featureTitle: ({ time: "Clock / Loop", workspaces: "Workspaces", audio: "Audio / Media", apps: "App Launcher",
+                                           notes: "Quick Notes", rumor: "Notifications", memdisk: "Memory / Disk", temps: "Sensors" })
+
+    property var planetFeatures: ({})      // planet id -> [feature], from the ENABLED widgets that sit on it
+    property string _featKey: ""
+
+    function rebuildFeatures() {
+        const all = WidgetConfig.entries();
+        const m = {};
+        for (let i = 0; i < all.length; i++) {
+            const e = all[i];
+            if (e.enabled === false) continue;
+            const f = featureOfSource[e.source];
+            if (!f) continue;
+            if (!m[e.host]) m[e.host] = [];
+            if (m[e.host].indexOf(f) < 0) m[e.host].push(f);
+        }
+        for (const h in m) m[h].sort((a, b) => featureOrder.indexOf(a) - featureOrder.indexOf(b));
+        const key = JSON.stringify(m);
+        if (key !== _featKey) { _featKey = key; planetFeatures = m; }
+    }
+    // (a property, not a child: MapData is a QtObject, which has no default property to hold children)
+    property Connections _widgetsWatch: Connections {
+        target: WidgetConfig
+        function onRevisionChanged() { root.rebuildFeatures(); }
+    }
+
+    function featuresOf(id) { return planetFeatures[id] || []; }
+
+    // what the map shows under the planet's name ("Workspaces / Audio / Media")
+    function roleOf(id) {
+        const fs = featuresOf(id);
+        if (fs.length === 0) return "No widgets";
+        const t = [];
+        for (let i = 0; i < fs.length; i++) t.push(featureTitle[fs[i]]);
+        return t.join(" / ");
+    }
+
     // ---------------- PROVIDERS ----------------
     // Which planets have something to show. Cheap on purpose (reads lengths only, never live numbers).
     // Planets that return false are drawn as outlines; they fill in as soon as this turns true.
-    function hasData(id) {
-        switch (id) {
-        case "sun":             return true;
-        case "ember_twin":
-        case "ash_twin":        return SignalscopeData.channels.length > 0;
-        case "timber_hearth":   return WidgetData.workspaces.length > 0;
-        case "attlerock":       return String(WidgetData.notesText || "").trim() !== "";
-        case "brittle_hollow":
-        case "hollows_lantern": return mock;            // live: true once the sysinfo adapter exists
-        case "dark_bramble":    return apps.length > 0;
-        case "interloper":      return RumorData.notifications.length > 0;
-        default:                return false;           // Sun Station, Giant's Deep, Quantum Moon: no provider yet
+    function _featureHasData(f) {
+        switch (f) {
+        case "time":       return true;
+        case "audio":      return SignalscopeData.channels.length > 0;
+        case "workspaces": return WidgetData.workspaces.length > 0;
+        case "notes":      return String(WidgetData.notesText || "").trim() !== "";
+        case "memdisk":
+        case "temps":      return mock;            // live: true once the sysinfo adapter exists
+        case "apps":       return apps.length > 0;
+        case "rumor":      return RumorData.notifications.length > 0;
+        default:           return false;
         }
+    }
+    function hasData(id) {
+        const fs = featuresOf(id);
+        for (let i = 0; i < fs.length; i++) if (_featureHasData(fs[i])) return true;
+        return false;
     }
     function entryCount(id) { return entriesFor(id).length; }
 
     // The list on the planet page, STRUCTURE ONLY (no per-second numbers, so the list does not rebuild every tick):
-    // [{ eid, group, title }] in display order, entries of one group next to each other.
+    // [{ eid, group, title }] in display order, entries of one group next to each other. One block per feature on the planet.
     function entriesFor(id) {
+        const fs = featuresOf(id), out = [];
+        for (let i = 0; i < fs.length; i++) {
+            const l = _entriesOf(fs[i]);
+            for (let j = 0; j < l.length; j++) out.push(l[j]);
+        }
+        return out;
+    }
+
+    // which feature on this planet owns entry `eid` ("" = none)
+    function _owner(id, eid) {
+        const fs = featuresOf(id);
+        if (fs.length === 1) return fs[0];
+        for (let i = 0; i < fs.length; i++) {
+            const l = _entriesOf(fs[i]);
+            for (let j = 0; j < l.length; j++) if (l[j].eid === eid) return fs[i];
+        }
+        return "";
+    }
+
+    function _entriesOf(f) {
         const out = [];
-        switch (id) {
-        case "ember_twin":
-        case "ash_twin": {
+        switch (f) {
+        case "audio": {
             // Both twins list every audio player; the Signalscope puts each one on its own planet.
             const chs = SignalscopeData.channels;
             for (let pass = 0; pass < 2; pass++)
@@ -211,7 +293,7 @@ QtObject {
                         out.push({ eid: chs[i].id, group: pass === 0 ? "Playing" : "Paused", title: chs[i].name });
             break;
         }
-        case "dark_bramble": {
+        case "apps": {
             const cats = [];
             for (let i = 0; i < apps.length; i++) if (cats.indexOf(apps[i].category) < 0) cats.push(apps[i].category);
             cats.sort();
@@ -221,14 +303,14 @@ QtObject {
             }
             break;
         }
-        case "timber_hearth": {
+        case "workspaces": {
             const ws = WidgetData.workspaces;
             for (let i = 0; i < ws.length; i++)
                 out.push({ eid: "ws" + ws[i].id, group: "Workspaces",
                            title: "Workspace " + ws[i].id + (ws[i].id === WidgetData.activeWorkspace ? "  (here)" : "") });
             break;
         }
-        case "interloper": {
+        case "rumor": {
             const ns = RumorData.notifications.slice().sort((a, b) => b.time - a.time).slice(0, 14);
             const apps2 = [];
             for (let i = 0; i < ns.length; i++) if (apps2.indexOf(ns[i].app) < 0) apps2.push(ns[i].app);   // newest app first
@@ -237,7 +319,7 @@ QtObject {
                     if (ns[i].app === apps2[a]) out.push({ eid: ns[i].id, group: apps2[a], title: ns[i].summary !== "" ? ns[i].summary : "(no title)" });
             break;
         }
-        case "brittle_hollow":
+        case "memdisk":
             if (!mock) break;
             out.push({ eid: "mem:ram",  group: "Memory", title: "RAM" });
             out.push({ eid: "mem:swap", group: "Memory", title: "Swap" });
@@ -245,7 +327,7 @@ QtObject {
             out.push({ eid: "disk:/home",      group: "Disk", title: "/home" });
             out.push({ eid: "disk:/mnt/games", group: "Disk", title: "/mnt/games" });
             break;
-        case "hollows_lantern":
+        case "temps":
             if (!mock) break;
             out.push({ eid: "temp:pkg",  group: "Temperatures", title: "CPU package" });
             for (let i = 0; i < 4; i++) out.push({ eid: "temp:c" + i, group: "Temperatures", title: "Core " + i });
@@ -253,7 +335,7 @@ QtObject {
             out.push({ eid: "temp:nvme", group: "Temperatures", title: "NVMe drive" });
             out.push({ eid: "load:cpu",  group: "Load", title: "CPU load" });
             break;
-        case "attlerock": {
+        case "notes": {
             const lines = String(WidgetData.notesText || "").split("\n");
             for (let i = 0; i < lines.length; i++) {
                 const t = lines[i].trim();
@@ -262,7 +344,7 @@ QtObject {
             }
             break;
         }
-        case "sun": {
+        case "time": {
             out.push({ eid: "local", group: "Clock", title: "Local time" });
             const z = WidgetData.worldZones;
             for (let i = 0; i < z.length; i++) out.push({ eid: "z" + i, group: "Clock", title: z[i].label });
@@ -274,13 +356,18 @@ QtObject {
         return out;
     }
 
+
     // Text and picture of one entry: { text: [paragraphs], image: url or "", glyph: "AB" }.
     // Evaluated by the page's description binding only, so live values update there without touching the list.
     function describe(id, eid) {
+        const f = _owner(id, eid);
+        if (f === "") return { text: [], image: "", glyph: "?" };
+        return _describeOf(f, eid);
+    }
+    function _describeOf(f, eid) {
         const none = { text: [], image: "", glyph: "?" };
-        switch (id) {
-        case "ember_twin":
-        case "ash_twin": {
+        switch (f) {
+        case "audio": {
             const ch = SignalscopeData.channelById(eid);
             if (!ch) return none;
             const t = [];
@@ -290,12 +377,12 @@ QtObject {
                    + ". Its signal comes from " + nameOf(ch.planet) + ".");
             return { text: t, image: ch.art || "", glyph: initials(ch.name) };
         }
-        case "dark_bramble": {
+        case "apps": {
             const a = apps.find(x => x.id === eid);
             if (!a) return none;
             return { text: [a.comment, "Category: " + a.category], image: a.icon || "", glyph: initials(a.name) };
         }
-        case "timber_hearth": {
+        case "workspaces": {
             const n = parseInt(String(eid).substring(2));
             const w = WidgetData.workspaces.find(x => x.id === n);
             if (!w) return none;
@@ -305,20 +392,20 @@ QtObject {
             for (let i = 0; i < names.length; i++) t.push(names[i]);
             return { text: t, image: "", glyph: String(n) };
         }
-        case "interloper": {
+        case "rumor": {
             const n = RumorData.notifications.find(x => x.id === eid);
             if (!n) return none;
             return { text: [n.body !== "" ? n.body : "(no message text)", n.app + ", " + RumorData.formatTime(n.time)],
                      image: n.image || "", glyph: initials(n.app) };
         }
-        case "brittle_hollow": return _memDisk(eid);
-        case "hollows_lantern": return _sensors(eid);
-        case "attlerock": {
+        case "memdisk": return _memDisk(eid);
+        case "temps": return _sensors(eid);
+        case "notes": {
             const lines = String(WidgetData.notesText || "").split("\n");
             const i = parseInt(String(eid).substring(1));
             return { text: [i < lines.length ? lines[i].trim() : ""], image: "", glyph: "N" };
         }
-        case "sun": {
+        case "time": {
             if (eid === "local") return { text: [Qt.formatDateTime(WidgetData.now, "HH:mm:ss"), Qt.formatDateTime(WidgetData.now, "dddd d MMMM yyyy")], image: "", glyph: "SU" };
             if (eid === "uptime") return { text: [WidgetData.formatUptime(WidgetData.uptimeSeconds)], image: "", glyph: "UP" };
             const z = WidgetData.worldZones[parseInt(String(eid).substring(1))];
@@ -329,35 +416,34 @@ QtObject {
         }
     }
 
-    // The button under the picture. null = this planet has no action at all (the button is hidden).
-    // { label, enabled }: enabled is false for planets that are read-only for now (the button shows dimmed).
+    // The button under the picture. null = this entry has no action at all (the button is hidden).
+    // { label, enabled }: enabled is false for features that are read-only for now (the button shows dimmed).
     function actionFor(id, eid) {
+        const f = _owner(id, eid);
         let label = "";
-        switch (id) {
-        case "ember_twin":
-        case "ash_twin":        label = "Tune Signalscope"; if (!SignalscopeData.channelById(eid)) return null; break;
-        case "dark_bramble":    label = "Launch App"; break;
-        case "interloper":      label = "Open In Rumor Map"; break;
-        case "brittle_hollow":
-        case "hollows_lantern": label = "Pin To HUD"; break;
+        switch (f) {
+        case "audio":   label = "Tune Signalscope"; if (!SignalscopeData.channelById(eid)) return null; break;
+        case "apps":    label = "Launch App"; break;
+        case "rumor":   label = "Open In Rumor Map"; break;
+        case "memdisk":
+        case "temps":   label = "Pin To HUD"; break;
         default: return null;
         }
-        return { label: label, enabled: interactiveIds[id] === true };
+        return { label: label, enabled: interactiveFeatures[f] === true };
     }
 
     function runAction(id, eid) {
         const act = actionFor(id, eid);
         if (!act || !act.enabled || eid === "") return;
-        switch (id) {
-        case "ember_twin":
-        case "ash_twin": {
+        switch (_owner(id, eid)) {
+        case "audio": {
             const ch = SignalscopeData.channelById(eid);
             if (!ch) return;
             pendingTune = { id: ch.id, planet: ch.planet };
             open = false;                       // onOpenChanged equips the scope and aims it
             break;
         }
-        case "dark_bramble": {
+        case "apps": {
             const a = apps.find(x => x.id === eid);
             if (!a) return;
             launchRequested(a.id, a.name);
@@ -365,12 +451,12 @@ QtObject {
             open = false;                       // like the game: acting on an entry puts you back in the world
             break;
         }
-        case "interloper":
+        case "rumor":
             rumorFocusRequested(eid);
             enterRumor();
             break;
-        case "brittle_hollow":
-        case "hollows_lantern": {
+        case "memdisk":
+        case "temps": {
             const e = entriesFor(id).find(x => x.eid === eid);
             pinRequested(eid, e ? e.title : eid);
             if (mock) console.log("[MapData] mock: would pin '" + (e ? e.title : eid) + "' to the HUD");
@@ -422,5 +508,5 @@ QtObject {
     //   windows:  Hyprland.toplevels -> setWindows({ "<workspace id>": ["<class> - <title>", ...] })
     //   pins:     Connections { target: MapData; function onPinRequested(statId, label) { ... HudData pin API ... } }
     //   Brittle Hollow / Hollow's Lantern: their entriesFor() / describe() branches above are mock-only; replace them with
-    //   readings from /proc/meminfo, statvfs and /sys/class/hwmon, then add the ids to `interactiveIds`.
+    //   readings from /proc/meminfo, statvfs and /sys/class/hwmon, then add `memdisk` / `temps` to `interactiveFeatures`.
 }

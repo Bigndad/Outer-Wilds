@@ -32,6 +32,25 @@ Scope {
         function hide(): void { if (RumorData.open) RumorData.toggle(); }
     }
 
+    // qs -c outerwilds ipc call hud toggle|show|hide        (the bottom-right loop / speed panel)
+    IpcHandler {
+        target: "hud"
+        function toggle(): void { WidgetConfig.setShowLoopPanel(!WidgetConfig.showLoopPanel); }
+        function show(): void { WidgetConfig.setShowLoopPanel(true); }
+        function hide(): void { WidgetConfig.setShowLoopPanel(false); }
+    }
+
+    // qs -c outerwilds ipc call keys toggle|show|hide        (the Control Centre on its KEYS tab)
+    IpcHandler {
+        target: "keys"
+        function show(): void { WidgetConfig.panelTab = "keys"; WidgetConfig.panelOpen = true; }
+        function hide(): void { WidgetConfig.panelOpen = false; }
+        function toggle(): void {
+            if (WidgetConfig.panelOpen && WidgetConfig.panelTab === "keys") WidgetConfig.panelOpen = false;
+            else { WidgetConfig.panelTab = "keys"; WidgetConfig.panelOpen = true; }
+        }
+    }
+
     IpcHandler {
         target: "scene"
         function status(): string {
@@ -46,6 +65,29 @@ Scope {
             });
         }
     }
+
+    // While the Control Centre records a key, Hyprland's own binds would swallow combos like Super+A before the panel sees them.
+    // So recording switches Hyprland to an (empty) submap, ow_capture, where no bind is active, and back to "reset" afterwards.
+    // The timer is a failsafe: whatever happens, the binds come back within 20 s.
+    Connections {
+        target: WidgetConfig
+        function onCapturingKeysChanged() {
+            if (WidgetConfig.capturingKeys) {
+                Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.submap(\"ow_capture\")"]);
+                captureFailsafe.restart();
+            } else {
+                captureFailsafe.stop();
+                Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.submap(\"reset\")"]);
+            }
+        }
+    }
+    Timer {
+        id: captureFailsafe
+        interval: 20000
+        repeat: false
+        onTriggered: WidgetConfig.capturingKeys = false
+    }
+    Component.onDestruction: if (WidgetConfig.capturingKeys) Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.submap(\"reset\")"])
 
     // the signalscope key submap (outerwilds.lua) must never outlive the scope, or its arrow / P / M keys stay hijacked
     Connections {

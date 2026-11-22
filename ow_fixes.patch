@@ -1,0 +1,54 @@
+diff --git a/core/CameraRig.qml b/core/CameraRig.qml
+index 1cfe8eb..5c7c427 100755
+--- a/core/CameraRig.qml
++++ b/core/CameraRig.qml
+@@ -997,8 +997,8 @@ Item {
+         readonly property real hR: vis ? Math.max(pH.screenR + 18, 30) : 30
+         readonly property bool shown: vis && hR < 3000
+         readonly property int side: Math.ceil((hR + 8) / 32) * 64
+-        readonly property real left0: shown ? pH.sx - side / 2 : 0
+-        readonly property real top0: shown ? pH.sy - side / 2 : 0
++        readonly property real left0: (shown && pH) ? pH.sx - side / 2 : 0
++        readonly property real top0: (shown && pH) ? pH.sy - side / 2 : 0
+         readonly property real fracX: left0 - Math.floor(left0)
+         readonly property real fracY: top0 - Math.floor(top0)
+ 
+@@ -1041,8 +1041,8 @@ Item {
+         readonly property bool shown: vis && rad < 3000
+         readonly property string lockColor: root.activeFocusId === "quantum_moon" ? "#9D74E8" : root.colLockBlue
+         readonly property int side: Math.ceil((rad + 24) / 32) * 64
+-        readonly property real left0: shown ? pL.sx - side / 2 : 0
+-        readonly property real top0: shown ? pL.sy - side / 2 : 0
++        readonly property real left0: (shown && pL) ? pL.sx - side / 2 : 0
++        readonly property real top0: (shown && pL) ? pL.sy - side / 2 : 0
+         readonly property real fracX: left0 - Math.floor(left0)
+         readonly property real fracY: top0 - Math.floor(top0)
+ 
+diff --git a/widgets/WidgetCard.qml b/widgets/WidgetCard.qml
+index 04c8592..c57d3ba 100755
+--- a/widgets/WidgetCard.qml
++++ b/widgets/WidgetCard.qml
+@@ -17,6 +17,7 @@ Item {
+     readonly property color cGold: "#D4AF37"
+     readonly property color cDim: "#8A7F66"
+     readonly property color cBg: "#E007080C"
++    property color accent: cGold        // corner brackets (a widget may set its own, e.g. the weather card)
+ 
+     width: Math.round(designW * ui)
+     height: Math.round(designH * ui)
+@@ -40,13 +41,13 @@ Item {
+             width: parent.width
+             height: Math.max(1, Math.round(card.ui * 1.5))
+             y: atBottom ? parent.height - height : 0
+-            color: card.cGold
++            color: card.accent
+         }
+         Rectangle {
+             height: parent.height
+             width: Math.max(1, Math.round(card.ui * 1.5))
+             x: atRight ? parent.width - width : 0
+-            color: card.cGold
++            color: card.accent
+         }
+     }
+     Bracket { }

@@ -8,7 +8,9 @@ Item {
 
     onActiveFocusChanged: {
         if (!activeFocus) {
-            keysDown = ({});
+            actDown = ({});
+            heldBy = ({});
+            _tapKey = 0;
             isInteracting = false;
         }
     }
@@ -81,7 +83,11 @@ Item {
     property real lockDist: 480.0
     property real targetLockDist: 480.0
 
-    property var keysDown: ({})
+    // flying keys are Keybinds actions (fwd / back / left / right / up / down), rebindable in the Control Centre.
+    property var actDown: ({})        // action -> true while its key is held
+    property var heldBy: ({})         // key code -> the action that key started (so releasing it ends that action)
+    property int _tapKey: 0           // a lone modifier bound to "drift": toggles when it is released with nothing pressed meanwhile
+    function held(a) { return actDown[a] === true; }
 
     // --- SPACE DRIFT ---
     // Ctrl toggles drift off (= the old flight model: thrust, then the ship stops by itself).
@@ -99,16 +105,24 @@ Item {
 
     Keys.onPressed: (event) => {
         if (event.isAutoRepeat) return;
-        keysDown[event.key] = true;
-        if (event.key === Qt.Key_Control) spaceDrift = !spaceDrift;
-        if (event.key === Qt.Key_Escape) {
+        const a = Keybinds.holdAction(event);
+        if (a !== "") { heldBy[event.key] = a; actDown[a] = true; }
+        if (Keybinds.matches("drift", event)) {
+            if (Keybinds.isLone(Keybinds.seq("drift"))) root._tapKey = event.key;      // toggles on release (see below)
+            else spaceDrift = !spaceDrift;
+        } else {
+            root._tapKey = 0;                  // another key was pressed: that Ctrl was part of a combo, not a tap
+        }
+        if (Keybinds.matches("release", event)) {
             lockedPlanetId = "";
             targetedPlanetId = "";
         }
     }
     Keys.onReleased: (event) => {
         if (event.isAutoRepeat) return;
-        keysDown[event.key] = false;
+        const a = heldBy[event.key];
+        if (a !== undefined) { actDown[a] = false; delete heldBy[event.key]; }
+        if (root._tapKey !== 0 && event.key === root._tapKey) { root._tapKey = 0; spaceDrift = !spaceDrift; }
     }
 
     // called by WidgetSlot when a double-click lands on dead card area, so widgets never block the fly-in
@@ -629,12 +643,12 @@ Item {
             if (root.lockedPlanetId !== "" && root.bodyCoords[root.lockedPlanetId]) {
                 let target = root.bodyCoords[root.lockedPlanetId];
 
-                if (root.keysDown[Qt.Key_W]) root.targetLockDist = Math.max(target.r * 2.2, root.targetLockDist - 650 * dt);
-                if (root.keysDown[Qt.Key_S]) root.targetLockDist = Math.min(8500, root.targetLockDist + 650 * dt);
-                if (root.keysDown[Qt.Key_A]) root.targetYaw -= 1.8 * dt;
-                if (root.keysDown[Qt.Key_D]) root.targetYaw += 1.8 * dt;
-                if (root.keysDown[Qt.Key_Space]) root.targetPitch = Math.max(-1.45, root.targetPitch - 1.4 * dt);
-                if (root.keysDown[Qt.Key_Shift]) root.targetPitch = Math.min(1.45, root.targetPitch + 1.4 * dt);
+                if (root.held("fwd")) root.targetLockDist = Math.max(target.r * 2.2, root.targetLockDist - 650 * dt);
+                if (root.held("back")) root.targetLockDist = Math.min(8500, root.targetLockDist + 650 * dt);
+                if (root.held("left")) root.targetYaw -= 1.8 * dt;
+                if (root.held("right")) root.targetYaw += 1.8 * dt;
+                if (root.held("up")) root.targetPitch = Math.max(-1.45, root.targetPitch - 1.4 * dt);
+                if (root.held("down")) root.targetPitch = Math.min(1.45, root.targetPitch + 1.4 * dt);
 
                 root.lockDist += (root.targetLockDist - root.lockDist) * Math.min(1.0, 8.0 * dt);
 
@@ -648,12 +662,12 @@ Item {
                 let thrust = drift ? 300.0 : 1800.0;
                 let ax = 0, ay = 0, az = 0;
                 let thrusting = false;
-                if (root.keysDown[Qt.Key_W]) { ax += fwdX * thrust; ay += fwdY * thrust; az += fwdZ * thrust; thrusting = true; }
-                if (root.keysDown[Qt.Key_S]) { ax -= fwdX * thrust; ay -= fwdY * thrust; az -= fwdZ * thrust; thrusting = true; }
-                if (root.keysDown[Qt.Key_D]) { ax += rightX * thrust; az += rightZ * thrust; thrusting = true; }
-                if (root.keysDown[Qt.Key_A]) { ax -= rightX * thrust; az -= rightZ * thrust; thrusting = true; }
-                if (root.keysDown[Qt.Key_Space]) { ay += thrust; thrusting = true; }
-                if (root.keysDown[Qt.Key_Shift]) { ay -= thrust; thrusting = true; }
+                if (root.held("fwd")) { ax += fwdX * thrust; ay += fwdY * thrust; az += fwdZ * thrust; thrusting = true; }
+                if (root.held("back")) { ax -= fwdX * thrust; ay -= fwdY * thrust; az -= fwdZ * thrust; thrusting = true; }
+                if (root.held("right")) { ax += rightX * thrust; az += rightZ * thrust; thrusting = true; }
+                if (root.held("left")) { ax -= rightX * thrust; az -= rightZ * thrust; thrusting = true; }
+                if (root.held("up")) { ay += thrust; thrusting = true; }
+                if (root.held("down")) { ay -= thrust; thrusting = true; }
 
                 if (drift) {
                     root.driftStep(dt, ax, ay, az, thrusting, rightX, rightZ);
@@ -983,8 +997,8 @@ Item {
         readonly property real hR: vis ? Math.max(pH.screenR + 18, 30) : 30
         readonly property bool shown: vis && hR < 3000
         readonly property int side: Math.ceil((hR + 8) / 32) * 64
-        readonly property real left0: shown ? pH.sx - side / 2 : 0
-        readonly property real top0: shown ? pH.sy - side / 2 : 0
+        readonly property real left0: (shown && pH) ? pH.sx - side / 2 : 0
+        readonly property real top0: (shown && pH) ? pH.sy - side / 2 : 0
         readonly property real fracX: left0 - Math.floor(left0)
         readonly property real fracY: top0 - Math.floor(top0)
 
@@ -1027,8 +1041,8 @@ Item {
         readonly property bool shown: vis && rad < 3000
         readonly property string lockColor: root.activeFocusId === "quantum_moon" ? "#9D74E8" : root.colLockBlue
         readonly property int side: Math.ceil((rad + 24) / 32) * 64
-        readonly property real left0: shown ? pL.sx - side / 2 : 0
-        readonly property real top0: shown ? pL.sy - side / 2 : 0
+        readonly property real left0: (shown && pL) ? pL.sx - side / 2 : 0
+        readonly property real top0: (shown && pL) ? pL.sy - side / 2 : 0
         readonly property real fracX: left0 - Math.floor(left0)
         readonly property real fracY: top0 - Math.floor(top0)
 
@@ -1297,8 +1311,12 @@ Item {
         anchors.fill: parent
     }
 
-    // --- DEBUG PANEL ---
+    // --- KEYS: map / rumor / edit / key list / loop panel / signalscope (Keybinds.qml + the Control Centre's KEYS tab) ---
+    KeyHost { rig: root }
+
+    // --- LOOP / SPEED PANEL (bottom right; the Control Centre's OPTIONS tab or the H key hides it) ---
     Rectangle {
+        visible: WidgetConfig.showLoopPanel
         z: 32000
         anchors.bottom: parent.bottom
         anchors.right: parent.right

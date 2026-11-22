@@ -265,31 +265,25 @@ Item {
             if (event.text.length > 0 && event.text >= " " && event.text !== "\u007f") { query = query + event.text; return; }
             // anything else (arrows, Home, ...) falls through to the normal keys below
         }
-        switch (event.key) {
-        case Qt.Key_Escape:
+        // every key here is a Keybinds action (Control Centre > KEYS), so all of them can be changed
+        const m = (id) => Keybinds.matches(id, event);
+        if (m("backKey")) {
             if (filtering) { query = ""; unreadOnly = false; }     // first Escape clears the filter, the next one leaves
             else RumorData.hide();
-            break;
-        case Qt.Key_Left: moveCursor(0); break;
-        case Qt.Key_Right: moveCursor(1); break;
-        case Qt.Key_Up: moveCursor(2); break;
-        case Qt.Key_Down: moveCursor(3); break;
-        case Qt.Key_Return:
-        case Qt.Key_Enter: explore(cursorId); break;
-        case Qt.Key_Home: fitView(); break;
-        case Qt.Key_Plus:
-        case Qt.Key_Equal:
-        case Qt.Key_PageUp: zoomBy(1, vw / 2, vh / 2); break;
-        case Qt.Key_Minus:
-        case Qt.Key_PageDown: zoomBy(-1, vw / 2, vh / 2); break;
-        case Qt.Key_Slash: searchOpen = true; RumorData.typing = true; break;
-        case Qt.Key_U: unreadOnly = !unreadOnly; break;
-        case Qt.Key_O: openCur(); break;
-        case Qt.Key_P: pinCur(); break;
-        case Qt.Key_X:
-        case Qt.Key_Delete: dismissCur(); break;
-        default: break;
         }
+        else if (m("navLeft")) moveCursor(0);
+        else if (m("navRight")) moveCursor(1);
+        else if (m("navUp")) moveCursor(2);
+        else if (m("navDown")) moveCursor(3);
+        else if (m("select")) explore(cursorId);
+        else if (m("fit")) fitView();
+        else if (m("zoomIn")) zoomBy(1, vw / 2, vh / 2);
+        else if (m("zoomOut")) zoomBy(-1, vw / 2, vh / 2);
+        else if (m("search")) { searchOpen = true; RumorData.typing = true; }
+        else if (m("unread")) unreadOnly = !unreadOnly;
+        else if (m("openApp")) openCur();
+        else if (m("pin")) pinCur();
+        else if (m("dismiss")) dismissCur();
     }
 
     function linkCount(id) {

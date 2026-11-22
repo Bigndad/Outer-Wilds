@@ -96,7 +96,9 @@ Item {
         const sc = Math.min(w, h) / 1080;
         const worldW = slot.def.worldWk !== undefined ? slot.def.worldWk * hostR : slot.def.worldW * rf;
         const raw = p.scale * worldW / item.designW;
-        const minUi = (slot.def.minUi !== undefined ? slot.def.minUi : 0.4) * sc;
+        // far away the widgets shrink much further than the normal floor (Control Centre > OPTIONS > "Shrink when far away")
+        const farK = WidgetConfig.shrinkFar ? 0.4 : 1.0;
+        const minUi = (slot.def.minUi !== undefined ? slot.def.minUi : 0.4) * sc * farK;
         const maxUi = (slot.def.maxUi !== undefined ? slot.def.maxUi : 1.5) * sc;
         const uiRaw = clamp(raw, minUi, maxUi);
         const q = Math.max(0.2, Math.round(uiRaw * 24) / 24);

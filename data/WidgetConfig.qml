@@ -43,9 +43,13 @@ QtObject {
         { source: "WorkspacesWidget.qml",        name: "Workspaces",            group: "Outer Wilds",  designW: 300 },
         { source: "NotesWidget.qml",             name: "Notes",                 group: "Outer Wilds",  designW: 280 },
         { source: "RumorWidget.qml",             name: "Ship log (rumors)",     group: "Outer Wilds",  designW: 250 },
+        { source: "MapWidget.qml",               name: "Map (small)",           group: "Outer Wilds",  designW: 250 },
+        { source: "AppLauncherWidget.qml",       name: "App launcher (small)",  group: "Outer Wilds",  designW: 250 },
         { source: "SignalscopeWidget.qml",       name: "Signalscope",           group: "Outer Wilds",  designW: 250 },
         { source: "WeatherWidget.qml",           name: "Weather",               group: "Outer Wilds", designW: 280, title: "WEATHER" },
         { source: "BlankWidget.qml",             name: "Blank placeholder",     group: "Outer Wilds",   designW: 240 },
+        { source: "WallpaperCard.qml",           name: "Wallpaper switcher",    group: "Outer Wilds",   designW: 260, title: "WALLPAPER" },
+        { source: "ScreentimeCard.qml",          name: "Screen time",           group: "Outer Wilds",   designW: 260, title: "SCREEN TIME" },
         { source: "serp/SunClock.qml",           name: "Dial clock", group: "Serpantinum",    designW: 220 },
         { source: "serp/AshTwinBattery.qml",     name: "Battery (round)",       group: "Serpantinum",  designW: 220, title: "BATTERY" },
         { source: "serp/EmberTwinBattery.qml",   name: "Battery (small)",       group: "Serpantinum",  designW: 160, title: "BATTERY" },
@@ -55,6 +59,14 @@ QtObject {
         { source: "serp/DarkBrambleVisualiser.qml", name: "Visualiser",         group: "Serpantinum",   designW: 360, title: "VISUALISER" },
         { source: "serp/DarkBrambleDisc.qml",    name: "Disc player",           group: "Serpantinum",   designW: 210 },
         { source: "serp/DarkBrambleLyrics.qml",  name: "Lyrics",                group: "Serpantinum",   designW: 340 },
+        { source: "serp/SunStationCpu.qml",      name: "CPU",                   group: "Serpantinum",   designW: 200, title: "CPU" },
+        { source: "serp/BrittleHollowRam.qml",   name: "RAM",                   group: "Serpantinum",   designW: 220, title: "RAM" },
+        { source: "serp/BrittleHollowDisk.qml",  name: "Disk",                  group: "Serpantinum",   designW: 220, title: "DISK" },
+        { source: "serp/HollowsLanternTemp.qml", name: "Temperature",           group: "Serpantinum",   designW: 200, title: "TEMP" },
+        { source: "serp/AshTwinTimer.qml",       name: "Focus timer (Pomodoro)", group: "Serpantinum",  designW: 240, title: "FOCUS" },
+        { source: "serp/GiantsDeepTimer.qml",    name: "Timer",                 group: "Serpantinum",   designW: 240, title: "TIMER" },
+        { source: "serp/GiantsDeepStopwatch.qml", name: "Stopwatch",            group: "Serpantinum",   designW: 240, title: "STOPWATCH" },
+        { source: "serp/QuantumMoonWeather.qml", name: "Weather (round)",       group: "Serpantinum",   designW: 220, title: "WEATHER" },
         { source: "glyph/GlyphMatrix.qml", name: "Glyph Matrix (spectrum)", group: "Glyph", designW: 220 },
         { source: "glyph/GlyphClock.qml", name: "Glyph clock", group: "Glyph", designW: 280 },
         { source: "glyph/GlyphCal.qml", name: "Glyph calendar", group: "Glyph", designW: 320 },
@@ -93,8 +105,15 @@ QtObject {
     property bool panelOpen: false   // the settings panel window (SettingsWindow) follows this; the map's "Edit Widgets" button sets it
     property int revision: 0         // bumped on EVERY change (WidgetLayer / panel follow this)
     property bool loaded: false
+    property var keyOverrides: ({})          // action id -> key sequence (Keybinds.qml); only the CHANGED keys are stored
+    property bool showLoopPanel: true        // the bottom-right LOOP / SPEED panel (CameraRig)
+    property bool shrinkFar: true            // widgets get much smaller when the planet is far away (WidgetSlot)
+    property string focusPlanet: ""          // the planet the camera is targeting / locked on ("" = none); set by KeyHost
+    property string panelTab: "widgets"      // settings panel tab: widgets | keys | options
+    property bool capturingKeys: false       // the panel is recording a key: HyprIpc parks Hyprland's own binds so Super+... reaches it
 
     signal saveRequested(string text)
+    signal launcherRequested()               // the small app-launcher widget was clicked: LauncherWindow opens the big one
 
     property string _lastText: ""
     property bool _quiet: false
@@ -141,11 +160,13 @@ QtObject {
         d._base = { host: base.host, speed: base.orbit.speed, k: base.orbit.k, tilt: base.orbit.tilt, node: base.orbit.node || 0,
                     show: base.show, source: base.source };
         d.enabled = true;
+        d.removed = false;
         d.size = 1;
         if (!ov) return d;
 
         if (ov.host !== undefined) d.host = ov.host;
         if (ov.enabled !== undefined) d.enabled = ov.enabled;
+        if (ov.removed !== undefined) d.removed = ov.removed;
         if (ov.show !== undefined) d.show = ov.show;
         if (ov.speed !== undefined) d.orbit.speed = ov.speed;
         if (ov.k !== undefined) d.orbit.k = ov.k;
@@ -179,11 +200,25 @@ QtObject {
         return out;
     }
 
-    // all widgets, including disabled ones (the panel lists these)
+    // all widgets that are still ON a planet, including switched-off ones (the panel lists these); removed ones are not here
     function entries() {
         revision;   // binding dependency
         const list = _baseList(), out = [];
-        for (let i = 0; i < list.length; i++) out.push(_resolveOne(list[i].def, overrides[list[i].def.id], list[i].extra));
+        for (let i = 0; i < list.length; i++) {
+            const e = _resolveOne(list[i].def, overrides[list[i].def.id], list[i].extra);
+            if (!e.removed) out.push(e);
+        }
+        return out;
+    }
+
+    // default widgets that were removed from their planet (the picker offers them for restoring)
+    function removedEntries() {
+        revision;
+        const out = [];
+        for (let i = 0; i < defaults.length; i++) {
+            const e = _resolveOne(defaults[i], overrides[defaults[i].id], false);
+            if (e.removed) out.push(e);
+        }
         return out;
     }
 
@@ -218,11 +253,11 @@ QtObject {
 
     function _same(a, b) { return typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-6 : a === b; }
 
-    // field: host | enabled | size | speed | k | tilt | node | show | source
+    // field: host | enabled | removed | size | speed | k | tilt | node | show | source
     function setField(id, field, value) {
         const base = _baseFor(id);
         if (!base) return;
-        const baseVal = { host: base.host, enabled: true, size: 1, speed: base.orbit.speed, k: base.orbit.k, tilt: base.orbit.tilt,
+        const baseVal = { host: base.host, enabled: true, removed: false, size: 1, speed: base.orbit.speed, k: base.orbit.k, tilt: base.orbit.tilt,
                           node: base.orbit.node || 0, show: base.show, source: base.source }[field];
         const o = _clone(overrides);
         if (!o[id]) o[id] = {};
@@ -274,21 +309,81 @@ QtObject {
         return id;
     }
 
+    // Takes a widget OFF its planet for good (it is not just switched off).
+    //  * a widget added from the panel is deleted;
+    //  * a default widget is marked `removed`: gone from the planet and the list, but still offered by the picker
+    //    ("restore" with its original planet / orbit), because the picker lists the whole catalog.
     function removeWidget(id) {
-        const e = [];
-        for (let i = 0; i < extras.length; i++) if (extras[i].id !== id) e.push(extras[i]);
-        if (e.length === extras.length) return;   // only widgets added from the panel can be deleted; defaults are disabled instead
-        extras = e;
+        let isExtra = false;
+        for (let i = 0; i < extras.length; i++) if (extras[i].id === id) isExtra = true;
         const o = _clone(overrides);
-        delete o[id];
+        if (isExtra) {
+            const e = [];
+            for (let i = 0; i < extras.length; i++) if (extras[i].id !== id) e.push(extras[i]);
+            extras = e;
+            delete o[id];
+        } else {
+            if (!_baseFor(id)) return;
+            o[id] = { removed: true };          // other edits are dropped: restoring brings back the original
+        }
         overrides = o;
         if (previewId === id) previewId = "";
         _bump(true);
     }
 
+    function restoreWidget(id) {
+        if (!overrides[id] || !overrides[id].removed) return;
+        const o = _clone(overrides);
+        delete o[id];
+        overrides = o;
+        previewId = id;
+        _bump(true);
+    }
+
+    // removes every switched-off widget from its planet; returns how many
+    function removeDisabled() {
+        const all = entries();
+        let n = 0;
+        for (let i = 0; i < all.length; i++) if (all[i].enabled === false) { removeWidget(all[i].id); n++; }
+        return n;
+    }
+
+    function disabledCount() {
+        const all = entries();
+        let n = 0;
+        for (let i = 0; i < all.length; i++) if (all[i].enabled === false) n++;
+        return n;
+    }
+
+    // the planet an enabled widget of this file sits on ("" = none); used to open the launcher / map "where the widget is"
+    function planetOfSource(source) {
+        const all = entries();
+        for (let i = 0; i < all.length; i++) if (all[i].source === source && all[i].enabled !== false) return all[i].host;
+        return "";
+    }
+
+    // ---------------- keys / options ----------------
+    function setKey(action, seq) {
+        const o = _clone(keyOverrides);
+        o[action] = seq;
+        keyOverrides = o;
+        _bump(true);
+    }
+    function resetKey(action) {
+        if (keyOverrides[action] === undefined) return;
+        const o = _clone(keyOverrides);
+        delete o[action];
+        keyOverrides = o;
+        _bump(true);
+    }
+    function resetKeys() { keyOverrides = ({}); _bump(true); }
+    function setShrinkFar(v) { if (shrinkFar === v) return; shrinkFar = v; _bump(true); }
+    function setShowLoopPanel(v) { if (showLoopPanel === v) return; showLoopPanel = v; _bump(true); }
+
     // ---------------- persistence ----------------
     function serialize() {
-        return JSON.stringify({ version: 1, globalSpeed: globalSpeed, overrides: overrides, extras: extras }, null, 2);
+        return JSON.stringify({ version: 1, globalSpeed: globalSpeed, overrides: overrides, extras: extras,
+                                keys: keyOverrides, ui: { loopPanel: showLoopPanel, shrinkFar: shrinkFar } }, null, 2);
     }
 
     // called by WidgetConfigStore after reading widgets.json ("" = no file yet)
@@ -301,6 +396,9 @@ QtObject {
         overrides = (obj && obj.overrides && typeof obj.overrides === "object") ? obj.overrides : ({});
         extras = (obj && Array.isArray(obj.extras)) ? obj.extras : [];
         globalSpeed = (obj && typeof obj.globalSpeed === "number") ? obj.globalSpeed : 1.0;
+        keyOverrides = (obj && obj.keys && typeof obj.keys === "object") ? obj.keys : ({});
+        showLoopPanel = !(obj && obj.ui && obj.ui.loopPanel === false);
+        shrinkFar = !(obj && obj.ui && obj.ui.shrinkFar === false);
         loaded = true;
         _bump(false);
         _quiet = false;

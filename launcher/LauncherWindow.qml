@@ -11,13 +11,23 @@ Scope {
     id: root
     property bool open: false
 
-    onOpenChanged: if (open) NoctaliaBridge.planetRequested("dark_bramble", "launcher")
+    // the camera flies to the planet that carries the launcher widget (Dark Bramble when there is none)
+    onOpenChanged: {
+        if (!open) return;
+        const p = WidgetConfig.planetOfSource("AppLauncherWidget.qml");
+        NoctaliaBridge.planetRequested(p !== "" ? p : "dark_bramble", "launcher");
+    }
 
     IpcHandler {
         target: "launcher"
         function toggle(): void { root.open = !root.open; }
         function show(): void { root.open = true; }
         function hide(): void { root.open = false; }
+    }
+
+    Connections {
+        target: WidgetConfig
+        function onLauncherRequested() { root.open = true; }
     }
 
     Connections {

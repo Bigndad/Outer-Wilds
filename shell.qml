@@ -6,6 +6,9 @@ ShellRoot {
     // live audio players -> signalscope channels (also registers `qs ipc call signalscope ...`)
     SignalscopeMpris { }
 
+    // live apps / launching / workspaces / uptime for the Map View and widgets (replaces their mock data)
+    SystemLive { }
+
     LauncherWindow { }
 
     // widget settings: widgets.json <-> WidgetConfig, and the panel (qs -c outerwilds ipc call settings toggle)
