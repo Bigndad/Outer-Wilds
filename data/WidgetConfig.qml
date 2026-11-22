@@ -348,6 +348,14 @@ QtObject {
         return n;
     }
 
+    // removes EVERY widget from its planet (the picker still lists them all; "RESET ALL WIDGETS" brings the defaults back); returns how many
+    function removeAll() {
+        const all = entries();
+        let n = 0;
+        for (let i = 0; i < all.length; i++) { removeWidget(all[i].id); n++; }
+        return n;
+    }
+
     function disabledCount() {
         const all = entries();
         let n = 0;

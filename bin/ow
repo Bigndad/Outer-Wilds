@@ -1,0 +1,21 @@
+#!/bin/sh
+# ow: control the Outer Wilds desktop.  ow start | stop | restart | status | log | doctor
+CFG=outerwilds
+case "$1" in
+  start)   pgrep -f "qs.*-c $CFG" >/dev/null && { echo "already running"; exit 0; }
+           setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo started ;;
+  stop)    qs kill -c "$CFG" ;;
+  restart) qs kill -c "$CFG" 2>/dev/null; sleep 1; setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo restarted ;;
+  status)  qs -c "$CFG" ipc call system status ;;
+  log)     qs -c "$CFG" log ;;
+  doctor)
+    for c in qs hyprctl busctl noctalia cava gtk-launch; do
+      if command -v "$c" >/dev/null 2>&1; then echo "ok       $c"; else echo "MISSING  $c"; fi
+    done
+    echo; echo "session bus notification owner:"; busctl --user status org.freedesktop.Notifications 2>&1 | grep -E "^(PID|Comm)"
+    echo; echo "hwmon sensors:"; for h in /sys/class/hwmon/hwmon*; do printf '%s ' "$(cat $h/name 2>/dev/null)"; done; echo
+    echo; echo "gpu busy file:"; ls /sys/class/drm/card*/device/gpu_busy_percent 2>&1 | head -1
+    echo; echo "layer surface:"; hyprctl layers 2>/dev/null | grep -i outerwilds || echo "  (not running)"
+    echo; echo "shell status:"; qs -c "$CFG" ipc call system status 2>&1 | head -3 ;;
+  *) echo "usage: ow start|stop|restart|status|log|doctor"; exit 1 ;;
+esac

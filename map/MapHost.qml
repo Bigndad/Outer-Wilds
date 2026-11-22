@@ -46,7 +46,8 @@ Item {
                 rig.active = false;                 // stage-5 mechanism: stops the frame loop, hides the widgets
                 rig.hoveredPlanetId = "";           // no stale hover ring left behind the overlay
                 rig.isInteracting = false;
-                rig.keysDown = ({});                // no thrust key stays "held" across the pause
+                rig.actDown = ({});                 // no thrust key stays "held" across the pause
+                rig.heldBy = ({});
                 _paused = true;
                 _scopeWas = SignalscopeData.equipped;
                 if (_scopeWas) SignalscopeData.dispatch("unequip");

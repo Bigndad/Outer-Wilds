@@ -34,6 +34,7 @@ Rectangle {
     property string pickQuery: ""
     property bool confirmReset: false
     property bool confirmClean: false
+    property bool confirmAll: false
     property string lastHost: "timber_hearth"
     property string capturing: ""         // action id whose key is being recorded
     property string capLone: ""           // a modifier pressed on its own so far ("Ctrl"...): becomes the key if released alone
@@ -250,6 +251,42 @@ Rectangle {
     }
 
     // ---------------- small controls ----------------
+    // scrollbar for a Flickable that is a direct child of the same parent: click the track or drag the knob.
+    // Place it right after the Flickable and leave 10 px free on the Flickable's right.
+    component OWScroll: Item {
+        id: sc
+        property Flickable target: null
+        readonly property bool overflow: target !== null && target.contentHeight > target.height + 1
+        visible: overflow
+        z: 50
+        x: target ? target.x + target.width + 2 : 0
+        y: target ? target.y : 0
+        width: 8
+        height: target ? target.height : 0
+        Rectangle { anchors.fill: parent; color: "#22D4AF37"; radius: 4 }
+        Rectangle {
+            id: knob
+            width: parent.width
+            height: sc.target ? Math.max(28, sc.height * sc.target.height / sc.target.contentHeight) : 28
+            y: sc.target ? (sc.height - height) * (sc.target.contentY / Math.max(1, sc.target.contentHeight - sc.target.height)) : 0
+            radius: 4
+            color: (sbm.pressed || sbm.containsMouse) ? "#B0D4AF37" : "#77D4AF37"
+        }
+        MouseArea {
+            id: sbm
+            anchors.fill: parent
+            hoverEnabled: true
+            function setFrom(my) {
+                if (!sc.target) return;
+                const travel = Math.max(1, sc.height - knob.height);
+                const f = Math.max(0, Math.min(1, (my - knob.height / 2) / travel));
+                sc.target.contentY = f * Math.max(0, sc.target.contentHeight - sc.target.height);
+            }
+            onPressed: (m) => setFrom(m.y)
+            onPositionChanged: (m) => { if (pressed) setFrom(m.y) }
+        }
+    }
+
     component OWButton: Rectangle {
         id: b
         property string label: ""
@@ -487,7 +524,7 @@ Rectangle {
             height: 82
 
             SearchBox {
-                width: parent.width - 96
+                width: parent.width - 190
                 placeholder: "search widgets or planets"
                 text: root.query
                 onTextChanged: root.query = text
@@ -498,6 +535,17 @@ Rectangle {
                 active: true
                 onClicked: root.startPick("add", "")
             }
+            OWButton {                      // two clicks: the first arms it for 3 s
+                anchors.right: parent.right
+                anchors.rightMargin: 66
+                label: root.confirmAll ? "SURE?" : "REMOVE ALL"
+                danger: root.confirmAll
+                onClicked: {
+                    if (root.confirmAll) { WidgetConfig.removeAll(); root.expandedId = ""; root.confirmAll = false; }
+                    else root.confirmAll = true;
+                }
+            }
+            Timer { interval: 3000; running: root.confirmAll; onTriggered: root.confirmAll = false }
             FieldLabel { y: 38; text: "ALL ORBITS" }
             OWSlider {
                 y: 50
@@ -547,7 +595,7 @@ Rectangle {
             id: flick
             x: 18
             y: toolbar.height + (cleanBar.visible ? 38 : 8)
-            width: parent.width - 36
+            width: parent.width - 46            // 10 px free on the right for the scrollbar
             height: parent.height - y - 10
             contentWidth: width
             contentHeight: listCol.height + 12
@@ -845,16 +893,7 @@ Rectangle {
             }
         }
 
-        // thin scrollbar
-        Rectangle {
-            visible: flick.contentHeight > flick.height
-            x: flick.x + flick.width - 3
-            y: flick.y + flick.height * (flick.contentY / flick.contentHeight)
-            width: 3
-            height: flick.height * (flick.height / flick.contentHeight)
-            color: "#66D4AF37"
-            radius: 1
-        }
+        OWScroll { target: flick }
     }
 
     // =====================================================================
@@ -894,7 +933,7 @@ Rectangle {
             id: keyFlick
             x: 18
             y: 44
-            width: parent.width - 36
+            width: parent.width - 46
             height: parent.height - y - 52
             contentWidth: width
             contentHeight: keyCol.height + 12
@@ -1044,6 +1083,7 @@ Rectangle {
                 }
             }
         }
+        OWScroll { target: keyFlick }
 
         Item {
             x: 18
@@ -1184,7 +1224,7 @@ Rectangle {
         Flickable {
             id: pickFlick
             x: 18; y: 120
-            width: parent.width - 36
+            width: parent.width - 46
             height: parent.height - 120 - 12
             contentHeight: pickCol.height + 12
             clip: true
@@ -1253,5 +1293,6 @@ Rectangle {
                 }
             }
         }
+        OWScroll { target: pickFlick }
     }
 }

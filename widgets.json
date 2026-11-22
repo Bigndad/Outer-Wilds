@@ -104,134 +104,17 @@
     "qm_a": {
       "removed": true
     },
-    "x1": {
-      "host": "timber_hearth"
-    },
-    "x2": {
-      "host": "timber_hearth"
-    },
-    "x3": {
-      "host": "timber_hearth"
-    },
-    "x4": {
-      "host": "timber_hearth"
-    },
-    "x5": {
-      "host": "timber_hearth"
-    },
-    "x6": {
-      "host": "timber_hearth"
-    },
     "x9": {
       "host": "interloper"
     },
     "x10": {
       "host": "interloper"
+    },
+    "x1": {
+      "host": "brittle_hollow"
     }
   },
   "extras": [
-    {
-      "id": "x1",
-      "host": "ember_twin",
-      "source": "glyph/GlyphMatrix.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": -0.7259225116215927,
-        "node": 2.399963,
-        "phase": 2.399963,
-        "speed": 0.2
-      }
-    },
-    {
-      "id": "x2",
-      "host": "ember_twin",
-      "source": "glyph/GlyphClock.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": 0.8582206870483817,
-        "node": 1.7999260000000001,
-        "phase": 4.799926,
-        "speed": 0.2
-      }
-    },
-    {
-      "id": "x3",
-      "host": "ember_twin",
-      "source": "glyph/GlyphCal.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": 0.8999308083397464,
-        "node": 0.9167036928204144,
-        "phase": 0.9167036928204144,
-        "speed": 0.2
-      }
-    },
-    {
-      "id": "x4",
-      "host": "ember_twin",
-      "source": "glyph/GlyphFocus.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": -0.5409720978568493,
-        "node": 0.31666669282041404,
-        "phase": 3.316666692820414,
-        "speed": 0.2
-      }
-    },
-    {
-      "id": "x5",
-      "host": "ember_twin",
-      "source": "glyph/GlyphCpu.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": -0.2603674416388043,
-        "node": 2.7166296928204137,
-        "phase": 5.716629692820414,
-        "speed": 0.2
-      }
-    },
-    {
-      "id": "x6",
-      "host": "ember_twin",
-      "source": "glyph/GlyphSystem.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": 0.02231780029478176,
-        "node": 1.8334073856408288,
-        "phase": 1.8334073856408288,
-        "speed": 0.2
-      }
-    },
     {
       "id": "x7",
       "host": "attlerock",
@@ -333,6 +216,109 @@
         "tilt": -0.04462187484470458,
         "node": 0.6668147712816577,
         "phase": 3.6668147712816577,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x1",
+      "host": "timber_hearth",
+      "source": "serp/AnserinBubbleCard.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.7259225116215927,
+        "node": 2.399963,
+        "phase": 2.399963,
+        "speed": 0.2
+      },
+      "title": "PROCESSES"
+    },
+    {
+      "id": "x2",
+      "host": "ash_twin",
+      "source": "glyph/GlyphRam.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8582206870483817,
+        "node": 1.7999260000000001,
+        "phase": 4.799926,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x3",
+      "host": "ash_twin",
+      "source": "glyph/GlyphCpu.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8999308083397464,
+        "node": 0.9167036928204144,
+        "phase": 0.9167036928204144,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x4",
+      "host": "ash_twin",
+      "source": "glyph/GlyphGpu.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.5409720978568493,
+        "node": 0.31666669282041404,
+        "phase": 3.316666692820414,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x5",
+      "host": "ember_twin",
+      "source": "glyph/GlyphMatrix.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.2603674416388043,
+        "node": 2.7166296928204137,
+        "phase": 5.716629692820414,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x6",
+      "host": "ember_twin",
+      "source": "glyph/GlyphClock.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.02231780029478176,
+        "node": 1.8334073856408288,
+        "phase": 1.8334073856408288,
         "speed": 0.2
       }
     }

@@ -21,6 +21,7 @@ QtObject {
     id: root
 
     property bool mock: true
+    property bool sysLive: false            // SystemExtras sets this: Brittle Hollow / Hollow's Lantern read the real Sensors singleton
 
     // ---------------- OPEN / CLOSE (single source of truth) ----------------
     property bool open: false
@@ -246,7 +247,7 @@ QtObject {
         case "workspaces": return WidgetData.workspaces.length > 0;
         case "notes":      return String(WidgetData.notesText || "").trim() !== "";
         case "memdisk":
-        case "temps":      return mock;            // live: true once the sysinfo adapter exists
+        case "temps":      return mock || sysLive;            // live: true once the sysinfo adapter exists
         case "apps":       return apps.length > 0;
         case "rumor":      return RumorData.notifications.length > 0;
         default:           return false;
@@ -320,6 +321,13 @@ QtObject {
             break;
         }
         case "memdisk":
+            if (sysLive) {
+                out.push({ eid: "mem:ram", group: "Memory", title: "RAM" });
+                if (Sensors.swapTotalGb > 0) out.push({ eid: "mem:swap", group: "Memory", title: "Swap" });
+                for (let i = 0; i < Sensors.disks.length; i++)
+                    out.push({ eid: "disk:" + Sensors.disks[i].mount, group: "Disk", title: Sensors.disks[i].mount });
+                break;
+            }
             if (!mock) break;
             out.push({ eid: "mem:ram",  group: "Memory", title: "RAM" });
             out.push({ eid: "mem:swap", group: "Memory", title: "Swap" });
@@ -328,6 +336,15 @@ QtObject {
             out.push({ eid: "disk:/mnt/games", group: "Disk", title: "/mnt/games" });
             break;
         case "temps":
+            if (sysLive) {
+                out.push({ eid: "temp:pkg", group: "Temperatures", title: "CPU" });
+                out.push({ eid: "temp:gpu", group: "Temperatures", title: "GPU" });
+                if (Sensors.nvmeTempC > 0) out.push({ eid: "temp:nvme", group: "Temperatures", title: "NVMe drive" });
+                out.push({ eid: "load:cpu", group: "Load", title: "CPU load" });
+                out.push({ eid: "load:gpu", group: "Load", title: "GPU load" });
+                out.push({ eid: "load:vram", group: "Load", title: "VRAM" });
+                break;
+            }
             if (!mock) break;
             out.push({ eid: "temp:pkg",  group: "Temperatures", title: "CPU package" });
             for (let i = 0; i < 4; i++) out.push({ eid: "temp:c" + i, group: "Temperatures", title: "Core " + i });
@@ -473,7 +490,32 @@ QtObject {
         for (let i = 0; i < n; i++) s += i < k ? "#" : ".";
         return "[" + s + "]";
     }
+    function _liveMemDisk(eid) {
+        let used = 0, total = 0, label = "";
+        if (eid === "mem:ram")       { used = Sensors.ramUsedGb;  total = Sensors.ramTotalGb;  label = "RAM"; }
+        else if (eid === "mem:swap") { used = Sensors.swapUsedGb; total = Sensors.swapTotalGb; label = "Swap"; }
+        else if (eid.indexOf("disk:") === 0) {
+            const d = Sensors.disks.find(x => "disk:" + x.mount === eid);
+            if (!d) return { text: ["Not mounted any more."], image: "", glyph: "?" };
+            used = d.usedGb; total = d.totalGb; label = "Disk " + d.mount;
+        } else return { text: [], image: "", glyph: "?" };
+        const f = total > 0 ? used / total : 0;
+        return { text: [label + ": " + used.toFixed(used < 10 ? 1 : 0) + " of " + total.toFixed(total < 10 ? 1 : 0) + " GB in use (" + Math.round(f * 100) + "%).", _bar(f)],
+                 image: "", glyph: eid.indexOf("mem") === 0 ? "RAM" : "DSK" };
+    }
+    function _liveSensors(eid) {
+        let t = [], g = "TMP";
+        if (eid === "temp:pkg")       t = ["CPU: " + Sensors.cpuTempC.toFixed(0) + " C."];
+        else if (eid === "temp:gpu")  t = ["GPU: " + Sensors.gpuTempC.toFixed(0) + " C."];
+        else if (eid === "temp:nvme") t = ["NVMe drive: " + Sensors.nvmeTempC.toFixed(0) + " C."];
+        else if (eid === "load:cpu")  { t = ["CPU load: " + Sensors.cpuPercent + "%.", _bar(Sensors.cpuPercent / 100)]; g = "CPU"; }
+        else if (eid === "load:gpu")  { t = ["GPU load: " + Sensors.gpuPercent + "%.", _bar(Sensors.gpuPercent / 100)]; g = "GPU"; }
+        else if (eid === "load:vram") { t = ["VRAM: " + Sensors.vramUsedGb.toFixed(1) + " of " + Sensors.vramTotalGb.toFixed(1) + " GB (" + Sensors.vramPercent + "%).", _bar(Sensors.vramPercent / 100)]; g = "VRM"; }
+        else return { text: [], image: "", glyph: "?" };
+        return { text: t, image: "", glyph: g };
+    }
     function _memDisk(eid) {
+        if (sysLive) return _liveMemDisk(eid);
         let used = 0, total = 1, label = "", unit = "GB";
         if (eid === "mem:ram")           { total = 16; used = HudData.ram * 16; label = "RAM"; }
         else if (eid === "mem:swap")     { total = 8;  used = 1.2; label = "Swap"; }
@@ -486,6 +528,7 @@ QtObject {
                  image: "", glyph: eid.indexOf("mem") === 0 ? "RAM" : "DSK" };
     }
     function _sensors(eid) {
+        if (sysLive) return _liveSensors(eid);
         const pkg = 38 + HudData.cpu * 42;
         let t = [], g = "TMP";
         if (eid === "temp:pkg")       t = ["CPU package: " + pkg.toFixed(0) + " C."];

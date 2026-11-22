@@ -1,0 +1,482 @@
+diff --git a/bin/ow b/bin/ow
+new file mode 100755
+index 0000000..e732d44
+--- /dev/null
++++ b/bin/ow
+@@ -0,0 +1,21 @@
++#!/bin/sh
++# ow: control the Outer Wilds desktop.  ow start | stop | restart | status | log | doctor
++CFG=outerwilds
++case "$1" in
++  start)   pgrep -f "qs.*-c $CFG" >/dev/null && { echo "already running"; exit 0; }
++           setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo started ;;
++  stop)    qs kill -c "$CFG" ;;
++  restart) qs kill -c "$CFG" 2>/dev/null; sleep 1; setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo restarted ;;
++  status)  qs -c "$CFG" ipc call system status ;;
++  log)     qs -c "$CFG" log ;;
++  doctor)
++    for c in qs hyprctl busctl noctalia cava gtk-launch; do
++      if command -v "$c" >/dev/null 2>&1; then echo "ok       $c"; else echo "MISSING  $c"; fi
++    done
++    echo; echo "session bus notification owner:"; busctl --user status org.freedesktop.Notifications 2>&1 | grep -E "^(PID|Comm)" 
++    echo; echo "hwmon sensors:"; for h in /sys/class/hwmon/hwmon*; do printf '%s ' "$(cat $h/name 2>/dev/null)"; done; echo
++    echo; echo "gpu busy file:"; ls /sys/class/drm/card*/device/gpu_busy_percent 2>&1 | head -1
++    echo; echo "layer surface:"; hyprctl layers 2>/dev/null | grep -i outerwilds || echo "  (not running)"
++    echo; echo "shell status:"; qs -c "$CFG" ipc call system status 2>&1 | head -3 ;;
++  *) echo "usage: ow start|stop|restart|status|log|doctor"; exit 1 ;;
++esac
+diff --git a/data/MapData.qml b/data/MapData.qml
+index 3bbd8ef..e4cc967 100755
+--- a/data/MapData.qml
++++ b/data/MapData.qml
+@@ -21,6 +21,7 @@ QtObject {
+     id: root
+ 
+     property bool mock: true
++    property bool sysLive: false            // SystemExtras sets this: Brittle Hollow / Hollow's Lantern read the real Sensors singleton
+ 
+     // ---------------- OPEN / CLOSE (single source of truth) ----------------
+     property bool open: false
+@@ -246,7 +247,7 @@ QtObject {
+         case "workspaces": return WidgetData.workspaces.length > 0;
+         case "notes":      return String(WidgetData.notesText || "").trim() !== "";
+         case "memdisk":
+-        case "temps":      return mock;            // live: true once the sysinfo adapter exists
++        case "temps":      return mock || sysLive;            // live: true once the sysinfo adapter exists
+         case "apps":       return apps.length > 0;
+         case "rumor":      return RumorData.notifications.length > 0;
+         default:           return false;
+@@ -320,6 +321,13 @@ QtObject {
+             break;
+         }
+         case "memdisk":
++            if (sysLive) {
++                out.push({ eid: "mem:ram", group: "Memory", title: "RAM" });
++                if (Sensors.swapTotalGb > 0) out.push({ eid: "mem:swap", group: "Memory", title: "Swap" });
++                for (let i = 0; i < Sensors.disks.length; i++)
++                    out.push({ eid: "disk:" + Sensors.disks[i].mount, group: "Disk", title: Sensors.disks[i].mount });
++                break;
++            }
+             if (!mock) break;
+             out.push({ eid: "mem:ram",  group: "Memory", title: "RAM" });
+             out.push({ eid: "mem:swap", group: "Memory", title: "Swap" });
+@@ -328,6 +336,15 @@ QtObject {
+             out.push({ eid: "disk:/mnt/games", group: "Disk", title: "/mnt/games" });
+             break;
+         case "temps":
++            if (sysLive) {
++                out.push({ eid: "temp:pkg", group: "Temperatures", title: "CPU" });
++                out.push({ eid: "temp:gpu", group: "Temperatures", title: "GPU" });
++                if (Sensors.nvmeTempC > 0) out.push({ eid: "temp:nvme", group: "Temperatures", title: "NVMe drive" });
++                out.push({ eid: "load:cpu", group: "Load", title: "CPU load" });
++                out.push({ eid: "load:gpu", group: "Load", title: "GPU load" });
++                out.push({ eid: "load:vram", group: "Load", title: "VRAM" });
++                break;
++            }
+             if (!mock) break;
+             out.push({ eid: "temp:pkg",  group: "Temperatures", title: "CPU package" });
+             for (let i = 0; i < 4; i++) out.push({ eid: "temp:c" + i, group: "Temperatures", title: "Core " + i });
+@@ -473,7 +490,32 @@ QtObject {
+         for (let i = 0; i < n; i++) s += i < k ? "#" : ".";
+         return "[" + s + "]";
+     }
++    function _liveMemDisk(eid) {
++        let used = 0, total = 0, label = "";
++        if (eid === "mem:ram")       { used = Sensors.ramUsedGb;  total = Sensors.ramTotalGb;  label = "RAM"; }
++        else if (eid === "mem:swap") { used = Sensors.swapUsedGb; total = Sensors.swapTotalGb; label = "Swap"; }
++        else if (eid.indexOf("disk:") === 0) {
++            const d = Sensors.disks.find(x => "disk:" + x.mount === eid);
++            if (!d) return { text: ["Not mounted any more."], image: "", glyph: "?" };
++            used = d.usedGb; total = d.totalGb; label = "Disk " + d.mount;
++        } else return { text: [], image: "", glyph: "?" };
++        const f = total > 0 ? used / total : 0;
++        return { text: [label + ": " + used.toFixed(used < 10 ? 1 : 0) + " of " + total.toFixed(total < 10 ? 1 : 0) + " GB in use (" + Math.round(f * 100) + "%).", _bar(f)],
++                 image: "", glyph: eid.indexOf("mem") === 0 ? "RAM" : "DSK" };
++    }
++    function _liveSensors(eid) {
++        let t = [], g = "TMP";
++        if (eid === "temp:pkg")       t = ["CPU: " + Sensors.cpuTempC.toFixed(0) + " C."];
++        else if (eid === "temp:gpu")  t = ["GPU: " + Sensors.gpuTempC.toFixed(0) + " C."];
++        else if (eid === "temp:nvme") t = ["NVMe drive: " + Sensors.nvmeTempC.toFixed(0) + " C."];
++        else if (eid === "load:cpu")  { t = ["CPU load: " + Sensors.cpuPercent + "%.", _bar(Sensors.cpuPercent / 100)]; g = "CPU"; }
++        else if (eid === "load:gpu")  { t = ["GPU load: " + Sensors.gpuPercent + "%.", _bar(Sensors.gpuPercent / 100)]; g = "GPU"; }
++        else if (eid === "load:vram") { t = ["VRAM: " + Sensors.vramUsedGb.toFixed(1) + " of " + Sensors.vramTotalGb.toFixed(1) + " GB (" + Sensors.vramPercent + "%).", _bar(Sensors.vramPercent / 100)]; g = "VRM"; }
++        else return { text: [], image: "", glyph: "?" };
++        return { text: t, image: "", glyph: g };
++    }
+     function _memDisk(eid) {
++        if (sysLive) return _liveMemDisk(eid);
+         let used = 0, total = 1, label = "", unit = "GB";
+         if (eid === "mem:ram")           { total = 16; used = HudData.ram * 16; label = "RAM"; }
+         else if (eid === "mem:swap")     { total = 8;  used = 1.2; label = "Swap"; }
+@@ -486,6 +528,7 @@ QtObject {
+                  image: "", glyph: eid.indexOf("mem") === 0 ? "RAM" : "DSK" };
+     }
+     function _sensors(eid) {
++        if (sysLive) return _liveSensors(eid);
+         const pkg = 38 + HudData.cpu * 42;
+         let t = [], g = "TMP";
+         if (eid === "temp:pkg")       t = ["CPU package: " + pkg.toFixed(0) + " C."];
+diff --git a/data/Sensors.qml b/data/Sensors.qml
+index 8c5088b..f076ec9 100644
+--- a/data/Sensors.qml
++++ b/data/Sensors.qml
+@@ -17,6 +17,10 @@ Singleton {
+     property real vramUsedGb: 0.0
+     property real vramTotalGb: 0.0
+     property int vramPercent: 0
++    property real swapUsedGb: 0.0
++    property real swapTotalGb: 0.0
++    property real nvmeTempC: 0.0
++    property var disks: []              // [{ mount, totalGb, usedGb }]  refreshed every 30 s and when the Map View opens
+ 
+     property real _prevIdle: 0
+     property real _prevTotal: 0
+@@ -33,11 +37,12 @@ Singleton {
+         id: sensorProc
+         command: ["sh", "-c", "
+             head -n1 /proc/stat;
+-            awk '/MemTotal|MemAvailable/ {print $1, $2}' /proc/meminfo;
++            awk '/MemTotal|MemAvailable|SwapTotal|SwapFree/ {print $1, $2}' /proc/meminfo;
+             for h in /sys/class/hwmon/hwmon*; do
+                 n=$(cat \"$h/name\" 2>/dev/null)
+                 if [ \"$n\" = \"k10temp\" ]; then echo \"CPU_T $(cat $h/temp1_input 2>/dev/null)\"; fi
+                 if [ \"$n\" = \"amdgpu\" ]; then echo \"GPU_T $(cat $h/temp1_input 2>/dev/null)\"; fi
++                if [ \"$n\" = \"nvme\" ] && [ -z \"$NV\" ]; then NV=1; echo \"NVME_T $(cat $h/temp1_input 2>/dev/null)\"; fi
+             done
+             for d in /sys/class/drm/card*/device; do
+                 if [ -f \"$d/gpu_busy_percent\" ]; then
+@@ -55,7 +60,7 @@ Singleton {
+ 
+     function parse(raw) {
+         const lines = raw.trim().split("\n");
+-        let memTotal = 0, memAvail = 0;
++        let memTotal = 0, memAvail = 0, swTotal = 0, swFree = 0;
+ 
+         for (let i = 0; i < lines.length; i++) {
+             const parts = lines[i].trim().split(/\s+/);
+@@ -75,6 +80,12 @@ Singleton {
+                 memTotal = parseFloat(parts[1]) || 0;
+             } else if (parts[0] === "MemAvailable:") {
+                 memAvail = parseFloat(parts[1]) || 0;
++            } else if (parts[0] === "SwapTotal:") {
++                swTotal = parseFloat(parts[1]) || 0;
++            } else if (parts[0] === "SwapFree:") {
++                swFree = parseFloat(parts[1]) || 0;
++            } else if (parts[0] === "NVME_T") {
++                root.nvmeTempC = Math.round((parseFloat(parts[1]) || 0) / 100) / 10;
+             } else if (parts[0] === "CPU_T") {
+                 root.cpuTempC = Math.round((parseFloat(parts[1]) || 0) / 100) / 10;
+             } else if (parts[0] === "GPU_T") {
+@@ -94,8 +105,41 @@ Singleton {
+             root.ramUsedGb = Math.round((used / 1048576) * 10) / 10;
+             root.ramTotalGb = Math.round((memTotal / 1048576) * 10) / 10;
+         }
++        root.swapTotalGb = Math.round(swTotal / 104857.6) / 10;
++        root.swapUsedGb = Math.round((swTotal - swFree) / 104857.6) / 10;
+         if (root.vramTotalGb > 0) {
+             root.vramPercent = Math.round((root.vramUsedGb / root.vramTotalGb) * 100);
+         }
+     }
+-}
+\ No newline at end of file
++
++    // ---------------- disks (cheap: one df every 30 s, only while the scene is visible) ----------------
++    function refreshDisks() { diskProc.running = true; }
++    Timer {
++        interval: 30000
++        running: NoctaliaBridge.desktopVisible
++        repeat: true
++        triggeredOnStart: true
++        onTriggered: root.refreshDisks()
++    }
++    Process {
++        id: diskProc
++        command: ["sh", "-c", "df -B1 --output=size,used,target -x tmpfs -x devtmpfs -x efivarfs -x squashfs -x overlay 2>/dev/null | tail -n +2"]
++        stdout: StdioCollector {
++            onStreamFinished: {
++                const seen = ({}), out = [];
++                const lines = String(text).trim().split("\n");
++                for (let i = 0; i < lines.length; i++) {
++                    const m = lines[i].trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
++                    if (!m) continue;
++                    const mount = m[3];
++                    if (mount.indexOf("/boot") === 0 || mount.indexOf("/efi") === 0 || mount.indexOf("/var/lib") === 0 || mount.indexOf("/run/user") === 0) continue;
++                    const key = m[1] + ":" + m[2];                     // btrfs subvolumes repeat the same numbers: keep the first
++                    if (seen[key]) continue;
++                    seen[key] = true;
++                    out.push({ mount: mount, totalGb: parseFloat(m[1]) / 1073741824, usedGb: parseFloat(m[2]) / 1073741824 });
++                }
++                root.disks = out;
++            }
++        }
++    }
++}
+diff --git a/data/SystemExtras.qml b/data/SystemExtras.qml
+new file mode 100644
+index 0000000..cb62151
+--- /dev/null
++++ b/data/SystemExtras.qml
+@@ -0,0 +1,236 @@
++import QtQuick
++import Quickshell
++import Quickshell.Io
++import "../"
++
++// =====================================================================
++//  SystemExtras: the last mock -> live step. ONE of these in shell.qml (after SystemLive { }).
++//  SystemLive already feeds apps, workspaces, window titles and uptime; this file feeds the rest and switches the mock flags off:
++//    * HUD            CPU and RAM arcs from Sensors; the orange "boost" arc = GPU load (a desktop has no battery);
++//                     globe audio bands from `cava` (only while something plays and the scene is visible; no cava = globe stays idle)
++//    * Map View       Brittle Hollow / Hollow's Lantern read Sensors (RAM, swap, real mounts, CPU / GPU / NVMe temps, loads)
++//    * Rumor Map      notifications, read from the session bus with `busctl --user monitor` (eavesdrop only: Noctalia keeps owning
++//                     the notification service). Saved to ~/.local/share/ow-shell/shiplog.json so history, read and pins survive restarts.
++//                     "Open app" launches the desktop entry. Dismiss only removes the card here (the daemon is Noctalia's).
++//    * Notes          ~/.local/share/ow-shell/notes.txt (loaded at start, saved 0.8 s after the last edit)
++//  Check everything with:  qs -c outerwilds ipc call system status
++// =====================================================================
++Scope {
++    id: root
++
++    readonly property string home: Quickshell.env("HOME")
++    readonly property string dataDir: home + "/.local/share/ow-shell"
++    readonly property string notesPath: dataDir + "/notes.txt"
++    readonly property string logPath: dataDir + "/shiplog.json"
++
++    property bool cavaOk: true
++    property bool busOk: false
++    property int seenNotifications: 0
++    property bool _notesReady: false
++    property bool _logReady: false
++    property string _lastKey: ""
++    property real _lastKeyAt: 0
++    property int _seq: 0
++
++    Component.onCompleted: {
++        // ---- switch the mocks off ----
++        HudData.mock = false;
++        HudData.audioActive = false;
++        WidgetData.mock = false;
++        MapData.mock = false;
++        MapData.sysLive = true;
++        RumorData.clear();                 // drop the mock history before the real one is loaded
++        RumorData.mock = false;
++        RumorData._loading = false;
++        notesLoad.running = true;
++        logLoad.running = true;
++        busProc.running = true;
++    }
++
++    // ---------------- HUD ----------------
++    Binding { target: HudData; property: "cpu";     value: Math.min(1, Sensors.cpuPercent / 100); when: !HudData.mock }
++    Binding { target: HudData; property: "ram";     value: Math.min(1, Sensors.ramPercent / 100); when: !HudData.mock }
++    Binding { target: HudData; property: "battery"; value: Math.min(1, Sensors.gpuPercent / 100); when: !HudData.mock }
++    Binding {
++        target: HudData; property: "audioActive"; when: !HudData.mock
++        value: { const c = SignalscopeData.channels; for (let i = 0; i < c.length; i++) if (c[i].playing) return true; return false; }
++    }
++    onCavaOkChanged: if (!cavaOk) console.warn("SystemExtras: cava not found or failed; the HUD globe stays idle (install `cava` for live bands)");
++
++    Process {
++        id: cava
++        running: !HudData.mock && HudData.audioActive && NoctaliaBridge.desktopVisible && root.cavaOk
++        command: ["sh", "-c",
++            "command -v cava >/dev/null || exit 3; mkdir -p \"$HOME/.cache/ow-shell\"; " +
++            "printf '[general]\\nbars = 8\\nframerate = 30\\n[input]\\nsource = auto\\n[output]\\nmethod = raw\\nraw_target = /dev/stdout\\ndata_format = ascii\\nascii_max_range = 100\\nbar_delimiter = 59\\nframe_delimiter = 10\\n' > \"$HOME/.cache/ow-shell/cava.conf\"; " +
++            "exec cava -p \"$HOME/.cache/ow-shell/cava.conf\""]
++        stdout: SplitParser {
++            onRead: data => {
++                const p = String(data).split(";");
++                if (p.length < 8) return;
++                const b = [];
++                for (let i = 0; i < 8; i++) b.push(Math.max(0, Math.min(1, (parseFloat(p[i]) || 0) / 100)));
++                HudData.setBands(b);
++            }
++        }
++        onExited: (code, status) => {
++            HudData.setBands([0, 0, 0, 0, 0, 0, 0, 0]);
++            if (code === 3 || code === 127) root.cavaOk = false;
++        }
++    }
++
++    // ---------------- Map View ----------------
++    Connections {
++        target: MapData
++        function onOpenChanged() { if (MapData.open) Sensors.refreshDisks(); }
++    }
++
++    // ---------------- notes ----------------
++    Process {
++        id: notesLoad
++        command: ["sh", "-c", "cat \"" + root.notesPath + "\" 2>/dev/null"]
++        stdout: StdioCollector {
++            onStreamFinished: {
++                if (String(text) !== "" && WidgetData.notesText === "") WidgetData.notesText = String(text);
++                root._notesReady = true;
++            }
++        }
++    }
++    Connections {
++        target: WidgetData
++        function onNotesTextChanged() { if (root._notesReady) notesSave.restart(); }
++    }
++    Timer { id: notesSave; interval: 800; repeat: false; onTriggered: root.writeFile(root.notesPath, String(WidgetData.notesText)) }
++
++    Process { id: writer }
++    Process { id: writer2 }
++    function writeFile(path, text) {
++        const w = (path === root.notesPath) ? writer : writer2;
++        w.command = ["sh", "-c", "mkdir -p \"$(dirname \"$1\")\" && printf %s \"$2\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"", "sh", path, text];
++        w.running = false;
++        w.running = true;
++    }
++
++    // ---------------- ship log persistence ----------------
++    Process {
++        id: logLoad
++        command: ["sh", "-c", "cat \"" + root.logPath + "\" 2>/dev/null"]
++        stdout: StdioCollector {
++            onStreamFinished: {
++                try {
++                    if (String(text).trim() !== "") {
++                        const d = JSON.parse(text);
++                        const r = ({}), p = ({});
++                        (d.read || []).forEach(k => r[k] = true);
++                        (d.pinned || []).forEach(k => p[k] = true);
++                        const have = RumorData.notifications;      // anything that arrived while loading
++                        RumorData.notifications = (d.notifications || []).concat(have);
++                        RumorData.readIds = r;
++                        RumorData.pinnedIds = p;
++                    }
++                } catch (e) { console.warn("SystemExtras: shiplog.json unreadable: " + e); }
++                root._logReady = true;
++            }
++        }
++    }
++    function _saveLog() {
++        const ns = RumorData.notifications.slice(-120).map(n => ({
++            id: n.id, app: n.app, appId: n.appId, summary: n.summary, body: String(n.body || "").substring(0, 300),
++            time: n.time, thread: n.thread, urgency: n.urgency
++        }));
++        writeFile(root.logPath, JSON.stringify({ notifications: ns, read: Object.keys(RumorData.readIds), pinned: Object.keys(RumorData.pinnedIds) }));
++    }
++    Timer { id: logSave; interval: 1500; repeat: false; onTriggered: root._saveLog() }
++    Connections {
++        target: RumorData
++        function onNotificationsChanged() { if (root._logReady) logSave.restart(); }
++        function onReadIdsChanged()       { if (root._logReady) logSave.restart(); }
++        function onPinnedIdsChanged()     { if (root._logReady) logSave.restart(); }
++        function onOpenRequested(n) {
++            let e = null;
++            try {
++                if (n.appId) e = DesktopEntries.byId(n.appId);
++                if (!e && DesktopEntries.heuristicLookup) e = DesktopEntries.heuristicLookup(n.app);
++            } catch (err) { e = null; }
++            if (e) e.execute(); else console.warn("SystemExtras: no desktop entry for '" + (n.appId || n.app) + "'");
++        }
++    }
++
++    // ---------------- notifications (eavesdrop on the session bus) ----------------
++    function _icon(name) {
++        const n = String(name || "");
++        if (n === "") return "";
++        return n.indexOf("/") === 0 ? "file://" + n : "image://icon/" + n;
++    }
++    function _hint(h, key) {
++        if (!h) return undefined;
++        let v;
++        if (Array.isArray(h)) {
++            for (let i = 0; i < h.length; i++) {
++                const e = h[i];
++                if (Array.isArray(e) && e[0] === key) { v = e[1]; break; }
++                if (e && e.key === key) { v = e.value; break; }
++            }
++        } else v = h[key];
++        return (v !== null && typeof v === "object" && v.data !== undefined) ? v.data : v;
++    }
++    // one line of `busctl --json=short monitor` -> a RumorData record, or null
++    function parseNotify(line, nowMs) {
++        let m;
++        try { m = JSON.parse(line); } catch (e) { return null; }
++        if (!m || m.member !== "Notify" || !m.payload || !Array.isArray(m.payload.data)) return null;
++        const d = m.payload.data;
++        const hints = d[6];
++        if (_hint(hints, "x-canonical-private-synchronous") !== undefined || _hint(hints, "synchronous") !== undefined) return null;   // volume / brightness OSDs
++        const app = String(d[0] || ""), summary = String(d[3] || ""), body = String(d[4] || "");
++        if (summary === "" && body === "") return null;
++        const key = app + "|" + summary + "|" + body;
++        if (key === root._lastKey && nowMs - root._lastKeyAt < 2000) return null;
++        root._lastKey = key; root._lastKeyAt = nowMs;
++        const u = _hint(hints, "urgency");
++        const img = _hint(hints, "image-path");
++        root._seq++;
++        return {
++            id: "d" + nowMs + "-" + root._seq,
++            app: app !== "" ? app : "Unknown",
++            appId: String(_hint(hints, "desktop-entry") || ""),
++            summary: summary,
++            body: body,
++            time: nowMs,
++            thread: summary,
++            urgency: u === 2 ? "critical" : (u === 0 ? "low" : "normal"),
++            image: img ? (String(img).indexOf("/") === 0 ? "file://" + img : "") : _icon(d[2])
++        };
++    }
++
++    Process {
++        id: busProc
++        command: ["busctl", "--user", "--json=short", "--match=type='method_call',interface='org.freedesktop.Notifications',member='Notify'", "monitor"]
++        stdout: SplitParser {
++            onRead: line => {
++                root.busOk = true;
++                const rec = root.parseNotify(line, Date.now());
++                if (rec) { root.seenNotifications++; RumorData.push(rec); }
++            }
++        }
++        onExited: busRestart.restart()
++    }
++    Timer { id: busRestart; interval: 3000; repeat: false; onTriggered: busProc.running = true }
++
++    // ---------------- diagnostics ----------------
++    IpcHandler {
++        target: "system"
++        function status(): string {
++            return JSON.stringify({
++                sensors: { cpu: Sensors.cpuPercent, ram: Sensors.ramPercent, gpu: Sensors.gpuPercent, cpuTemp: Sensors.cpuTempC,
++                           gpuTemp: Sensors.gpuTempC, nvmeTemp: Sensors.nvmeTempC, disks: Sensors.disks.length },
++                sceneVisible: NoctaliaBridge.desktopVisible,
++                hud: { mock: HudData.mock, audioActive: HudData.audioActive, cava: root.cavaOk },
++                notifications: { busSeen: root.busOk, newSinceStart: root.seenNotifications, stored: RumorData.notifications.length },
++                notesChars: String(WidgetData.notesText).length,
++                dataDir: root.dataDir
++            });
++        }
++        function refresh(): void { Sensors.refreshDisks(); }
++    }
++}
+diff --git a/qmldir b/qmldir
+index fa6f954..06c433b 100755
+--- a/qmldir
++++ b/qmldir
+@@ -32,6 +32,7 @@ singleton RumorData 1.0 data/RumorData.qml
+ singleton SignalscopeData 1.0 data/SignalscopeData.qml
+ SignalscopeMpris 1.0 data/SignalscopeMpris.qml
+ SystemLive 1.0 data/SystemLive.qml
++SystemExtras 1.0 data/SystemExtras.qml
+ singleton WidgetData 1.0 data/WidgetData.qml
+ singleton NoctaliaBridge 1.0 data/NoctaliaBridge.qml
+ LauncherWindow 1.0 launcher/LauncherWindow.qml
+diff --git a/shell.qml b/shell.qml
+index 138471f..6022298 100755
+--- a/shell.qml
++++ b/shell.qml
+@@ -9,6 +9,9 @@ ShellRoot {
+     // live apps / launching / workspaces / uptime for the Map View and widgets (replaces their mock data)
+     SystemLive { }
+ 
++    // the last mock -> live step: HUD, sensors on the Map View, notifications, notes (qs -c outerwilds ipc call system status)
++    SystemExtras { }
++
+     LauncherWindow { }
+ 
+     // widget settings: widgets.json <-> WidgetConfig, and the panel (qs -c outerwilds ipc call settings toggle)

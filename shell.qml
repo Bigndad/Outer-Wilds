@@ -9,6 +9,9 @@ ShellRoot {
     // live apps / launching / workspaces / uptime for the Map View and widgets (replaces their mock data)
     SystemLive { }
 
+    // the last mock -> live step: HUD, sensors on the Map View, notifications, notes (qs -c outerwilds ipc call system status)
+    SystemExtras { }
+
     LauncherWindow { }
 
     // widget settings: widgets.json <-> WidgetConfig, and the panel (qs -c outerwilds ipc call settings toggle)

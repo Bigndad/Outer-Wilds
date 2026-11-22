@@ -32,6 +32,7 @@ singleton RumorData 1.0 data/RumorData.qml
 singleton SignalscopeData 1.0 data/SignalscopeData.qml
 SignalscopeMpris 1.0 data/SignalscopeMpris.qml
 SystemLive 1.0 data/SystemLive.qml
+SystemExtras 1.0 data/SystemExtras.qml
 singleton WidgetData 1.0 data/WidgetData.qml
 singleton NoctaliaBridge 1.0 data/NoctaliaBridge.qml
 LauncherWindow 1.0 launcher/LauncherWindow.qml

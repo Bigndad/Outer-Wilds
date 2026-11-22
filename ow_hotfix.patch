@@ -1,0 +1,28 @@
+diff --git a/map/MapHost.qml b/map/MapHost.qml
+index 6af26b4..efb277e 100755
+--- a/map/MapHost.qml
++++ b/map/MapHost.qml
+@@ -46,7 +46,8 @@ Item {
+                 rig.active = false;                 // stage-5 mechanism: stops the frame loop, hides the widgets
+                 rig.hoveredPlanetId = "";           // no stale hover ring left behind the overlay
+                 rig.isInteracting = false;
+-                rig.keysDown = ({});                // no thrust key stays "held" across the pause
++                rig.actDown = ({});                 // no thrust key stays "held" across the pause
++                rig.heldBy = ({});
+                 _paused = true;
+                 _scopeWas = SignalscopeData.equipped;
+                 if (_scopeWas) SignalscopeData.dispatch("unequip");
+diff --git a/rumor/RumorMap.qml b/rumor/RumorMap.qml
+index c78c670..cd1c1a3 100755
+--- a/rumor/RumorMap.qml
++++ b/rumor/RumorMap.qml
+@@ -42,7 +42,8 @@ Item {
+                 rig.active = false;                 // stage-5 mechanism: stops the frame loop, hides the widgets
+                 rig.hoveredPlanetId = "";           // no stale hover ring left behind the overlay
+                 rig.isInteracting = false;
+-                rig.keysDown = ({});                // no thrust key stays "held" across the pause
++                rig.actDown = ({});                 // no thrust key stays "held" across the pause
++                rig.heldBy = ({});
+                 _paused = true;
+             }
+             shown = true;
