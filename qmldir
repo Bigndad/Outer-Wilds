@@ -45,3 +45,5 @@ SettingsPanel 1.0 settings/SettingsPanel.qml
 SettingsWindow 1.0 settings/SettingsWindow.qml
 # hyprland global-bind IPC (map, rumor, scene)
 HyprIpc 1.0 core/HyprIpc.qml
+BubbleWindow 1.0 widgets/serp/panels/BubbleWindow.qml
+NetworkWindow 1.0 widgets/serp/panels/NetworkWindow.qml

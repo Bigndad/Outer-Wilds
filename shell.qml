@@ -12,6 +12,8 @@ ShellRoot {
     WidgetConfigStore { }
     SettingsWindow { }
     ScreentimeWindow { }
+    BubbleWindow { }
+    NetworkWindow { }
     WallpaperWindow { }
 
     // global-bind IPC for Hyprland: map, rumor, scene (HYPR-COMPAT)

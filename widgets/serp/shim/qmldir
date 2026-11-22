@@ -50,3 +50,5 @@ MaterialDigitGrid 1.0 MaterialDigitGrid.qml
 ImageBox 1.0 ImageBox.qml
 NumberSelector 1.0 NumberSelector.qml
 WallpaperMedia 1.0 WallpaperMedia.qml
+singleton PanelLayout 1.0 PanelLayout.qml
+FillButton 1.0 FillButton.qml

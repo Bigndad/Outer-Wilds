@@ -79,7 +79,9 @@ QtObject {
         { source: "serp/AnserinImageRounded.qml", name: "Picture, rounded", group: "Other", designW: 300 },
         { source: "serp/AnserinImageRect.qml", name: "Picture, square corners", group: "Other", designW: 300 },
         { source: "serp/AnserinImageRound.qml", name: "Picture, round", group: "Other", designW: 200 },
-        { source: "serp/AnserinText.qml", name: "Text", group: "Other", designW: 320 }
+        { source: "serp/AnserinText.qml", name: "Text", group: "Other", designW: 320 },
+        { source: "serp/AnserinNetworkCard.qml", name: "Network (small)", group: "Other", designW: 240, title: "NETWORK" },
+        { source: "serp/AnserinBubbleCard.qml", name: "Processes (small)", group: "Other", designW: 240, title: "PROCESSES" }
     ]
 
     // ---------------- state ----------------

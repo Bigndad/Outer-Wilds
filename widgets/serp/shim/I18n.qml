@@ -110,11 +110,32 @@ QtObject {
         "weather.months.sep": "Sep",
         "weather.months.oct": "Oct",
         "weather.months.nov": "Nov",
-        "weather.months.dec": "Dec"
+        "weather.months.dec": "Dec",
+        "network.actions.scan": "Scan",
+        "network.actions.unpair": "Unpair",
+        "network.status.calculating": "Calculating...",
+        "network.status.connected": "Connected",
+        "network.status.current_device": "Current device",
+        "network.status.disconnected": "Disconnected",
+        "network.status.disconnecting": "Disconnecting...",
+        "network.status.hold": "Hold...",
+        "network.status.no_ip": "No IP",
+        "network.status.open": "Open",
+        "network.status.powering_off": "Powering off...",
+        "network.status.powering_on": "Powering on...",
+        "network.status.unknown": "Unknown",
+        "network.tabs.bluetooth": "Bluetooth",
+        "network.tabs.ethernet": "Ethernet",
+        "network.tabs.wifi": "Wi-fi"
 })
     function t(key, params) {
         var s = strings[key] !== undefined ? strings[key] : key;
         if (params) for (var p in params) s = s.split("{" + p + "}").join(params[p]);
         return s;
     }
+
+    // added by port_anserin_panels.py (Anserin's ClickButton / Input read these)
+    readonly property bool rtl: false
+    readonly property int layoutDirection: Qt.LeftToRight
+    readonly property int textAlignment: Text.AlignLeft
 }

@@ -27,3 +27,5 @@ AnserinImageRounded 1.0 AnserinImageRounded.qml
 AnserinImageRect 1.0 AnserinImageRect.qml
 AnserinImageRound 1.0 AnserinImageRound.qml
 AnserinText 1.0 AnserinText.qml
+AnserinNetworkCard 1.0 AnserinNetworkCard.qml
+AnserinBubbleCard 1.0 AnserinBubbleCard.qml
