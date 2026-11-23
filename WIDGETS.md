@@ -51,7 +51,7 @@ WidgetCard {
 |---|---|
 | `WidgetData` | `now` (Date, each second), `uptimeSeconds`, `workspaces` ([{id, windows}]), `activeWorkspace`, `notesText`; `formatUptime(sec)`, `switchWorkspace(id)` |
 | `Sensors` | `cpuPercent`, `cpuTempC`, `ramPercent`, `ramUsedGb`, `ramTotalGb`, `gpuPercent`, `gpuTempC`, `vramPercent`, `swapUsedGb`, `nvmeTempC`, `disks` ([{mount, totalGb, usedGb}]) |
-| `HudData` | `cpu`, `ram`, `battery` (0..1), `audioActive`, `bandsA` / `bandsB` (audio bands) |
+| `HudData` | `cpu`, `ram`, `battery` (0..1, mapped to GPU load on desktop), `audioActive`, `bandsA` / `bandsB` (audio bands) |
 
 Finished examples to copy from: `widgets/ClockWidget.qml`, `widgets/UptimeWidget.qml`, `widgets/lucid/`, `widgets/serp/`.
 

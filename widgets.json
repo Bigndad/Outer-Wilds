@@ -121,9 +121,6 @@
     },
     "x18": {
       "size": 0.65
-    },
-    "x22": {
-      "enabled": false
     }
   },
   "extras": [
@@ -488,23 +485,6 @@
         "speed": 0.2
       },
       "title": "SCREEN TIME"
-    },
-    {
-      "id": "x22",
-      "host": "sun_station",
-      "source": "UptimeWidget.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": -0.827159189389349,
-        "node": 2.533703542563309,
-        "phase": 2.533703542563309,
-        "speed": 0.2
-      }
     },
     {
       "id": "x23",

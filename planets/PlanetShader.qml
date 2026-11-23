@@ -5,7 +5,6 @@ Item {
     id: planetNode
     property string bodyId: ""
     property string bodyName: ""
-    property string bodyRole: ""
     property color baseColor: "#4E8B57"
     property color accentColor: "#2E5B88"
     property vector4d lightDir: Qt.vector4d(1, 0, 0, 0)
@@ -94,14 +93,6 @@ Item {
             text: planetNode.isLocked
                 ? `${planetNode.bodyName.toUpperCase()} [${Math.round(planetNode.bodyDepth)}m]`
                 : planetNode.bodyName
-        }
-
-        Text {
-            visible: planetNode.isLocked || planetNode.isSun || planetNode.bodyType === 11
-            color: "#CCE6D5B8"
-            font.family: "monospace"
-            font.pixelSize: 10
-            text: `ROLE: ${planetNode.bodyRole}`
         }
     }
 }

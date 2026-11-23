@@ -164,18 +164,18 @@ Item {
 
     // Static metadata separated from per-frame coordinates to eliminate 72 binding updates/frame
     readonly property var bodyMeta: ({
-        "sun":             { name: "The Sun",          role: "Clock / Loop",     color: "#FFAA22", accent: "#FF4500", bType: 0,  isSun: true },
-        "sun_station":     { name: "Sun Station",      role: "System Power",          color: "#E6D5B8", accent: "#AA8844", bType: 1,  isSun: false },
-        "ash_twin":        { name: "Ash Twin",         role: "Timer / Sand",          color: "#D2B48C", accent: "#8B7355", bType: 2,  isSun: false },
-        "ember_twin":      { name: "Ember Twin",       role: "Audio / Media",         color: "#CD5C5C", accent: "#8B3A3A", bType: 3,  isSun: false },
-        "timber_hearth":   { name: "Timber Hearth",    role: "Workspaces",            color: "#3B7A57", accent: "#2B4F81", bType: 4,  isSun: false },
-        "attlerock":       { name: "Attlerock",        role: "Quick Notes",            color: "#9999A5", accent: "#666670", bType: 5,  isSun: false },
-        "brittle_hollow":  { name: "Brittle Hollow",   role: "Memory / Disk",         color: "#483D8B", accent: "#FF6347", bType: 6,  isSun: false },
-        "hollows_lantern": { name: "Hollow's Lantern", role: "CPU Temp",              color: "#4A2511", accent: "#FF4500", bType: 7,  isSun: false },
-        "giants_deep":     { name: "Giant's Deep",     role: "Network / Tray",        color: "#1E6B52", accent: "#469A7E", bType: 8,  isSun: false },
-        "dark_bramble":    { name: "Dark Bramble",     role: "App Launcher",          color: "#3A4B3C", accent: "#7A6855", bType: 9,  isSun: false },
-        "interloper":      { name: "The Interloper",   role: "Notifications / Shots", color: "#88D8FF", accent: "#E0FFFF", bType: 10, isSun: false },
-        "quantum_moon":    { name: "Quantum Moon",     role: "Quantum Satellite",     color: "#8B849C", accent: "#D1C7BD", bType: 11, isSun: false }
+        "sun":             { name: "The Sun",          color: "#FFAA22", accent: "#FF4500", bType: 0,  isSun: true },
+        "sun_station":     { name: "Sun Station",      color: "#E6D5B8", accent: "#AA8844", bType: 1,  isSun: false },
+        "ash_twin":        { name: "Ash Twin",         color: "#D2B48C", accent: "#8B7355", bType: 2,  isSun: false },
+        "ember_twin":      { name: "Ember Twin",       color: "#CD5C5C", accent: "#8B3A3A", bType: 3,  isSun: false },
+        "timber_hearth":   { name: "Timber Hearth",    color: "#3B7A57", accent: "#2B4F81", bType: 4,  isSun: false },
+        "attlerock":       { name: "Attlerock",        color: "#9999A5", accent: "#666670", bType: 5,  isSun: false },
+        "brittle_hollow":  { name: "Brittle Hollow",   color: "#483D8B", accent: "#FF6347", bType: 6,  isSun: false },
+        "hollows_lantern": { name: "Hollow's Lantern", color: "#4A2511", accent: "#FF4500", bType: 7,  isSun: false },
+        "giants_deep":     { name: "Giant's Deep",     color: "#1E6B52", accent: "#469A7E", bType: 8,  isSun: false },
+        "dark_bramble":    { name: "Dark Bramble",     color: "#3A4B3C", accent: "#7A6855", bType: 9,  isSun: false },
+        "interloper":      { name: "The Interloper",   color: "#88D8FF", accent: "#E0FFFF", bType: 10, isSun: false },
+        "quantum_moon":    { name: "Quantum Moon",     color: "#8B849C", accent: "#D1C7BD", bType: 11, isSun: false }
     })
 
     Component.onCompleted: {
@@ -952,7 +952,6 @@ Item {
             PlanetShader {
                 bodyId: parent.key
                 bodyName: parent.meta.name
-                bodyRole: parent.meta.role
                 baseColor: parent.meta.color
                 accentColor: parent.meta.accent
                 bodyType: parent.meta.bType
