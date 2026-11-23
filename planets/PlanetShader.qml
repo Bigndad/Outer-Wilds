@@ -28,7 +28,7 @@ Item {
     }
 
     readonly property bool usesBake: bodyType >= 2 && bodyType <= 10
-    readonly property int bakeW: 1024
+    readonly property int bakeW: WidgetConfig.bakeW
 
     readonly property real sphereRadiusPx: bodyType === 10 ? screenRadius * 0.79
                                          : (bodyType === 4 || bodyType === 7 || bodyType === 2 || bodyType === 3) ? screenRadius * 0.999
@@ -63,6 +63,7 @@ Item {
                 }
 
                 Component.onCompleted: scheduleUpdate()
+                onTextureSizeChanged: Qt.callLater(scheduleUpdate)
             }
         }
     }
@@ -83,12 +84,12 @@ Item {
         anchors.left: parent.horizontalCenter
         anchors.leftMargin: planetNode.screenRadius + 8
         anchors.verticalCenter: parent.verticalCenter
-        visible: planetNode.isSun || planetNode.isLocked || planetNode.bodyDepth < 1500
+        visible: WidgetConfig.showLabels && (planetNode.isSun || planetNode.isLocked || planetNode.bodyDepth < WidgetConfig.labelDist)
 
         Text {
             color: planetNode.isLocked ? "#55E6FF" : (planetNode.isSun ? "#FFCC66" : (planetNode.bodyType === 11 ? "#B886FF" : "#E6D5B8"))
             font.family: "monospace"
-            font.pixelSize: planetNode.isLocked ? 12 : 11
+            font.pixelSize: Math.max(8, Math.round((planetNode.isLocked ? 12 : 11) * WidgetConfig.labelSize))
             font.bold: planetNode.isLocked || planetNode.isSun
             text: planetNode.isLocked
                 ? `${planetNode.bodyName.toUpperCase()} [${Math.round(planetNode.bodyDepth)}m]`

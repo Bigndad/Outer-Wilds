@@ -103,7 +103,7 @@ Item {
     function handleKey(event) {
         const m = (id) => Keybinds.matches(id, event);
         const fresh = !event.isAutoRepeat;
-        if (m("rumorMode")) { if (fresh) MapData.enterRumor(); return; }
+        if (m("rumor")) { if (fresh) MapData.enterRumor(); return; }
         if (m("edit")) { if (fresh) editWidgets(); return; }
         if (MapData.pageOpen) {
             if (m("navUp"))              moveEntry(-1);
@@ -273,8 +273,8 @@ Item {
             x: view.width - width - Math.round(48 * view.bu)
             y: Math.round(40 * view.bu)
             bu: view.bu
-            label: "Rumor Mode"
-            hint: "R"
+            label: "Rumor Map"
+            hint: Keybinds.pretty(Keybinds.seq("rumor")) || "L"
             onClicked: MapData.enterRumor()
         }
 
@@ -335,7 +335,7 @@ Item {
             y: Math.round(36 * view.bu)
             x: view.width - width - pageLayer.m
             spacing: Math.round(14 * view.bu)
-            MapButton { bu: view.bu; label: "Rumor Mode"; hint: "R"; onClicked: MapData.enterRumor() }
+            MapButton { bu: view.bu; label: "Rumor Map"; hint: Keybinds.pretty(Keybinds.seq("rumor")) || "L"; onClicked: MapData.enterRumor() }
             MapButton { bu: view.bu; label: "Back to Map"; hint: "Esc"; onClicked: MapData.closePage() }
         }
 
@@ -533,7 +533,7 @@ Item {
         font.pixelSize: Math.max(9, Math.round(13 * view.bu))
         font.letterSpacing: 1 * view.bu
         text: MapData.pageOpen
-              ? "UP / DOWN  entry     LEFT / RIGHT  planet     ENTER  action     R  rumor mode     ESC  back to map     N  close"
-              : "ARROWS  move     ENTER  open     + / -  zoom     R  rumor mode     N / ESC  close"
+              ? "UP / DOWN  entry     LEFT / RIGHT  planet     ENTER  action     " + (Keybinds.pretty(Keybinds.seq("rumor")) || "L") + "  rumor map     ESC  back to map     N  close"
+              : "ARROWS  move     ENTER  open     + / -  zoom     " + (Keybinds.pretty(Keybinds.seq("rumor")) || "L") + "  rumor map     N / ESC  close"
     }
 }

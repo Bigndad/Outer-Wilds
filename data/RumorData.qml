@@ -170,15 +170,15 @@ QtObject {
     // The anchors are spread out in steps depending on the biggest cluster (so small histories stay compact and the
     // whole map fits on screen, while a long chat thread still gets room). Clusters only shift when it crosses a step.
     function spreadFor(maxCount) {
-        if (maxCount <= 6) return 0.65;
-        if (maxCount <= 12) return 0.85;
-        if (maxCount <= 20) return 1.05;
-        return 1.35;
+        if (maxCount <= 6) return 0.90;
+        if (maxCount <= 12) return 1.20;
+        if (maxCount <= 20) return 1.50;
+        return 1.85;
     }
-    readonly property real cardW: 132       // text card size in world units (the view multiplies by its ui scale)
-    readonly property real cardH: 56
-    readonly property real imgCardW: 104    // picture card (like the game's cards: title on top, picture below)
-    readonly property real imgCardH: 100
+    readonly property real cardW: 106       // Outer Wilds square card proportions for all nodes
+    readonly property real cardH: 108
+    readonly property real imgCardW: 106
+    readonly property real imgCardH: 108
     readonly property url assetDir: Qt.resolvedUrl("rumor_assets/")   // mock pictures live here
 
     function hashStr(s) {
@@ -275,7 +275,7 @@ QtObject {
                     kind = "app";
                 }
                 const phase = (hashStr(app.name) % 628) / 100.0;
-                const r = 98 * Math.sqrt(i);
+                const r = 178 * Math.sqrt(i);
                 const pinned = !!pinnedIds[src.id];
                 const node = {
                     id: src.id, app: src.app, summary: src.summary, body: src.body,
@@ -290,12 +290,12 @@ QtObject {
                     h: (src.image || "") !== "" ? imgCardH : cardH,
                     ids: src.ids || [],
                     count: src.count || 0,
-                    sizeK: src.urgency === "critical" ? 1.15 : 1.0,
+                    sizeK: src.urgency === "critical" ? 1.24 : ((i === 0 && app.items.length >= 3) ? 1.18 : 1.0),
                     threadParent: threadParent,
                     parent: parent ? parent.id : "",
                     linkKind: kind,
                     x: anchor[0] + Math.cos(i * GA + phase) * r,
-                    y: anchor[1] + Math.sin(i * GA + phase) * r * 0.78
+                    y: anchor[1] + Math.sin(i * GA + phase) * r * 0.86
                 };
                 mine.push(node);
                 nodes.push(node);
@@ -306,15 +306,15 @@ QtObject {
             }
 
             // push overlapping cards apart (deterministic, small N)
-            for (let it = 0; it < 40; it++) {
+            for (let it = 0; it < 80; it++) {
                 let moved = false;
                 for (let a = 0; a < mine.length; a++) {
                     for (let b = a + 1; b < mine.length; b++) {
                         const sk = (mine[a].sizeK + mine[b].sizeK) / 2;
                         const dx = mine[b].x - mine[a].x;
                         const dy = mine[b].y - mine[a].y;
-                        const ox = ((mine[a].w + mine[b].w) / 2 + 20) * sk - Math.abs(dx);
-                        const oy = ((mine[a].h + mine[b].h) / 2 + 18) * sk - Math.abs(dy);
+                        const ox = ((mine[a].w + mine[b].w) / 2 + 76) * sk - Math.abs(dx);
+                        const oy = ((mine[a].h + mine[b].h) / 2 + 70) * sk - Math.abs(dy);
                         if (ox > 0 && oy > 0) {
                             moved = true;
                             if (ox < oy) {

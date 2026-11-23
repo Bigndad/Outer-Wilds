@@ -505,10 +505,27 @@
     }
   ],
   "keys": {
-    "launcher": "Meta+A"
+    "launcher": "Alt+A",
+    "rumor": "R"
   },
   "ui": {
     "loopPanel": false,
-    "shrinkFar": true
+    "shrinkFar": true,
+    "bakeW": 2048,
+    "hud": false,
+    "orbits": true,
+    "labels": true,
+    "reticles": true,
+    "fpsIdle": 30,
+    "hudOpacity": 1,
+    "hudScale": 1,
+    "orbitOpacity": 1,
+    "orbitWidth": 1.2,
+    "labelSize": 1,
+    "labelDist": 1500,
+    "reticleOpacity": 1,
+    "reticleWidth": 1,
+    "loopPanelOpacity": 1,
+    "loopPanelScale": 1
   }
 }

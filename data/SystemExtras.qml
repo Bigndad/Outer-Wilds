@@ -123,8 +123,12 @@ Scope {
                         const r = ({}), p = ({});
                         (d.read || []).forEach(k => r[k] = true);
                         (d.pinned || []).forEach(k => p[k] = true);
+                        const loaded = (d.notifications || []).map(n => {
+                            if (!n.image) n.image = root._resolveImage("", "", n.appId, n.app);
+                            return n;
+                        });
                         const have = RumorData.notifications;      // anything that arrived while loading
-                        RumorData.notifications = (d.notifications || []).concat(have);
+                        RumorData.notifications = loaded.concat(have);
                         RumorData.readIds = r;
                         RumorData.pinnedIds = p;
                     }
@@ -136,7 +140,7 @@ Scope {
     function _saveLog() {
         const ns = RumorData.notifications.slice(-120).map(n => ({
             id: n.id, app: n.app, appId: n.appId, summary: n.summary, body: String(n.body || "").substring(0, 300),
-            time: n.time, thread: n.thread, urgency: n.urgency
+            time: n.time, thread: n.thread, urgency: n.urgency, image: n.image || ""
         }));
         writeFile(root.logPath, JSON.stringify({ notifications: ns, read: Object.keys(RumorData.readIds), pinned: Object.keys(RumorData.pinnedIds) }));
     }
@@ -147,20 +151,36 @@ Scope {
         function onReadIdsChanged()       { if (root._logReady) logSave.restart(); }
         function onPinnedIdsChanged()     { if (root._logReady) logSave.restart(); }
         function onOpenRequested(n) {
-            let e = null;
-            try {
-                if (n.appId) e = DesktopEntries.byId(n.appId);
-                if (!e && DesktopEntries.heuristicLookup) e = DesktopEntries.heuristicLookup(n.app);
-            } catch (err) { e = null; }
-            if (e) e.execute(); else console.warn("SystemExtras: no desktop entry for '" + (n.appId || n.app) + "'");
+            const script = Qt.resolvedUrl("open_notif.py").toString().replace(/^file:\/\//, "");
+            Quickshell.execDetached(["python3", script, String(n.appId || ""), String(n.app || ""), String(n.image || "")]);
+            RumorData.hide();
         }
     }
 
     // ---------------- notifications (eavesdrop on the session bus) ----------------
     function _icon(name) {
-        const n = String(name || "");
+        const n = String(name || "").trim();
         if (n === "") return "";
-        return n.indexOf("/") === 0 ? "file://" + n : "image://icon/" + n;
+        if (n.indexOf("file://") === 0 || n.indexOf("image://") === 0 || n.indexOf("qrc:") === 0) return n;
+        if (n.indexOf("/") === 0) return "file://" + n;
+        try {
+            const resolved = Quickshell.iconPath(n, true);
+            if (resolved && String(resolved) !== "") return String(resolved);
+        } catch (err) {}
+        return "image://icon/" + n;
+    }
+    function _resolveImage(imgHint, appIcon, appId, appName) {
+        const fromHint = _icon(imgHint);
+        if (fromHint !== "") return fromHint;
+        const fromIcon = _icon(appIcon);
+        if (fromIcon !== "") return fromIcon;
+        let e = null;
+        try {
+            if (appId) e = DesktopEntries.byId(appId);
+            if (!e && appName && DesktopEntries.heuristicLookup) e = DesktopEntries.heuristicLookup(appName);
+        } catch (err) { e = null; }
+        if (e && e.icon) return _icon(e.icon);
+        return "";
     }
     function _hint(h, key) {
         if (!h) return undefined;
@@ -174,38 +194,36 @@ Scope {
         } else v = h[key];
         return (v !== null && typeof v === "object" && v.data !== undefined) ? v.data : v;
     }
-    // one line of `busctl --json=short monitor` -> a RumorData record, or null
+    // one line of `data/notify_monitor.py` -> a RumorData record, or null
     function parseNotify(line, nowMs) {
         let m;
         try { m = JSON.parse(line); } catch (e) { return null; }
-        if (!m || m.member !== "Notify" || !m.payload || !Array.isArray(m.payload.data)) return null;
-        const d = m.payload.data;
-        const hints = d[6];
-        if (_hint(hints, "x-canonical-private-synchronous") !== undefined || _hint(hints, "synchronous") !== undefined) return null;   // volume / brightness OSDs
-        const app = String(d[0] || ""), summary = String(d[3] || ""), body = String(d[4] || "");
+        if (!m || typeof m !== "object") return null;
+        const appName = String(m.app || "Unknown");
+        const summary = String(m.summary || "");
+        const body = String(m.body || "");
         if (summary === "" && body === "") return null;
-        const key = app + "|" + summary + "|" + body;
+        const key = appName + "|" + summary + "|" + body;
         if (key === root._lastKey && nowMs - root._lastKeyAt < 2000) return null;
         root._lastKey = key; root._lastKeyAt = nowMs;
-        const u = _hint(hints, "urgency");
-        const img = _hint(hints, "image-path");
+        const appId = String(m.appId || "");
         root._seq++;
         return {
             id: "d" + nowMs + "-" + root._seq,
-            app: app !== "" ? app : "Unknown",
-            appId: String(_hint(hints, "desktop-entry") || ""),
+            app: appName,
+            appId: appId,
             summary: summary,
             body: body,
             time: nowMs,
             thread: summary,
-            urgency: u === 2 ? "critical" : (u === 0 ? "low" : "normal"),
-            image: img ? (String(img).indexOf("/") === 0 ? "file://" + img : "") : _icon(d[2])
+            urgency: String(m.urgency || "normal"),
+            image: _resolveImage(m.image || "", m.appIcon || "", appId, appName)
         };
     }
 
     Process {
         id: busProc
-        command: ["busctl", "--user", "--json=short", "--match=type='method_call',interface='org.freedesktop.Notifications',member='Notify'", "monitor"]
+        command: ["python3", "-u", Qt.resolvedUrl("notify_monitor.py").toString().replace(/^file:\/\//, "")]
         stdout: SplitParser {
             onRead: line => {
                 root.busOk = true;

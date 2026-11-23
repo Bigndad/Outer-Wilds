@@ -681,11 +681,18 @@ void main() {
         vec3 rayOriginComet = viewToComet * vec3(0.0, 0.0, fovDist);
         vec3 rayDirComet    = normalize(viewToComet * vec3(uv.x, -uv.y, -fovDist));
 
-        float tHit = 0.5;
         bool hitBody = false;
         vec3 pComet = vec3(0.0);
 
-        for (int i = 0; i < 48; i++) {
+        float bSph = dot(rayOriginComet, rayDirComet);
+        float cSph = dot(rayOriginComet, rayOriginComet) - 0.78 * 0.78;
+        float disc = bSph * bSph - cSph;
+        if (disc >= 0.0) {
+            float sDisc = sqrt(disc);
+            float tHit = max(0.5, -bSph - sDisc);
+            float tEnd = min(4.5, -bSph + sDisc);
+            for (int i = 0; i < 48; i++) {
+                if (tHit > tEnd) break;
             vec3 p = rayOriginComet + rayDirComet * tHit;
 
             float x = p.x;
@@ -713,8 +720,9 @@ void main() {
                 break;
             }
 
-            tHit += max(d * 0.6, 0.006);
-            if (tHit > 4.5) break;
+                tHit += max(d * 0.6, 0.006);
+                if (tHit > tEnd) break;
+            }
         }
 
         float tailAlpha = 0.0;
@@ -736,17 +744,19 @@ void main() {
             float edgeFade = smoothstep(0.0, 0.12, tailDist) * smoothstep(1.0, 0.70, tailDist);
             float radFade  = smoothstep(coneR * 1.8, coneR * 0.3, tailRad);
 
-            float streak = fbm(vec3(pTail.x * 5.0 - t * 3.0, pTail.y * 10.0, pTail.z * 10.0));
-            float coreGas = exp(-(tailRad * tailRad) / (coreR * coreR * 0.4)) * (0.8 + 0.4 * streak);
-            float comaGas = exp(-(tailRad * tailRad) / (coneR * coneR * 0.8));
+            if (edgeFade > 0.001 && radFade > 0.001) {
+                float streak = fbm(vec3(pTail.x * 5.0 - t * 3.0, pTail.y * 10.0, pTail.z * 10.0));
+                float coreGas = exp(-(tailRad * tailRad) / (coreR * coreR * 0.4)) * (0.8 + 0.4 * streak);
+                float comaGas = exp(-(tailRad * tailRad) / (coneR * coneR * 0.8));
 
-            vec3 cWhiteCyan = vec3(0.85, 0.96, 1.0);
-            vec3 cDeepBlue  = vec3(0.18, 0.42, 0.85);
-            vec3 cOuterComa = vec3(0.08, 0.15, 0.45);
+                vec3 cWhiteCyan = vec3(0.85, 0.96, 1.0);
+                vec3 cDeepBlue  = vec3(0.18, 0.42, 0.85);
+                vec3 cOuterComa = vec3(0.08, 0.15, 0.45);
 
-            tailCol = mix(cDeepBlue, cWhiteCyan, coreGas);
-            tailCol = mix(cOuterComa, tailCol, comaGas);
-            tailAlpha = clamp((coreGas * 0.95 + comaGas * 0.45) * edgeFade * radFade, 0.0, 0.85);
+                tailCol = mix(cDeepBlue, cWhiteCyan, coreGas);
+                tailCol = mix(cOuterComa, tailCol, comaGas);
+                tailAlpha = clamp((coreGas * 0.95 + comaGas * 0.45) * edgeFade * radFade, 0.0, 0.85);
+            }
         }
 
         float comaD = length(cross(rayOriginComet, rayDirComet));
@@ -761,19 +771,22 @@ void main() {
 
             vec3 texDir = normalize(pComet);
             Baked b = readBaked(texDir, bakeLod(max(nView.z, 0.2)), IL_BUMP);
+            vec3 nBump = normalize(V * (transpose(worldToComet) * b.nObj));
+            vec3 shadeN = normalize(mix(nView, nBump, 0.65));
+            float cavity = clamp(1.0 + (b.tex.a - b.hBlur) * 2.2, 0.72, 1.18);
 
             // True view-space direction toward the Sun passed in camAngles.zw
             vec3 actualL = normalize(vec3(camAngles.zw, 0.35));
-            float ndl = dot(nView, actualL);
+            float ndl = dot(shadeN, actualL);
             float halfLambert = ndl * 0.5 + 0.5;
             float lit = mix(0.35, 1.15, smoothstep(0.15, 0.80, halfLambert));
 
             vec3 Hh = normalize(actualL + vec3(0.0, 0.0, 1.0));
-            float spec = pow(max(dot(nView, Hh), 0.0), 38.0) * 0.85 * step(0.0, ndl);
+            float spec = pow(max(dot(shadeN, Hh), 0.0), 38.0) * 0.85 * step(0.0, ndl);
 
             float rim = pow(1.0 - max(nView.z, 0.0), 2.4);
 
-            vec3 surfCol = b.tex.rgb * lit + vec3(1.0) * spec + vec3(0.4, 0.8, 1.0) * rim * 0.5;
+            vec3 surfCol = b.tex.rgb * cavity * lit + vec3(1.0) * spec + vec3(0.4, 0.8, 1.0) * rim * 0.5;
 
             if (pComet.x < -0.15) {
                 float shadow = smoothstep(-0.15, -0.45, pComet.x);

@@ -321,7 +321,11 @@ Item {
     // ---------------- BACKGROUND ----------------
     Rectangle {
         anchors.fill: parent
-        color: "#F507080C"
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#F20B1220" }
+            GradientStop { position: 0.55; color: "#F4080E19" }
+            GradientStop { position: 1.0; color: "#F6060A12" }
+        }
     }
 
     // grid, links and (empty state) ghost cards: one canvas, repainted only when something it shows changes
@@ -352,14 +356,14 @@ Item {
         const gx1 = camX + w / 2 / u;
         for (let gx = gx0; gx <= gx1; gx += step) {
             const sx = Math.round(w / 2 + (gx - camX) * u) + 0.5;
-            ctx.strokeStyle = gx === 0 ? "rgba(230,213,184,0.11)" : "rgba(212,175,55,0.045)";
+            ctx.strokeStyle = gx === 0 ? "rgba(155,195,235,0.16)" : "rgba(110,155,210,0.06)";
             ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
         }
         const gy0 = Math.floor((camY - h / 2 / u) / step) * step;
         const gy1 = camY + h / 2 / u;
         for (let gy = gy0; gy <= gy1; gy += step) {
             const sy = Math.round(h / 2 + (gy - camY) * u) + 0.5;
-            ctx.strokeStyle = gy === 0 ? "rgba(230,213,184,0.11)" : "rgba(212,175,55,0.045)";
+            ctx.strokeStyle = gy === 0 ? "rgba(155,195,235,0.16)" : "rgba(110,155,210,0.06)";
             ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
         }
 
@@ -388,8 +392,8 @@ Item {
             const st = RumorData.stateOfNode(b);
             let col;
             if (touched) col = "rgba(212,175,55,0.95)";
-            else if (st === "locked") col = "rgba(138,127,102,0.35)";
-            else col = rgba(b.rgb, st === "unread" ? 0.85 : 0.5);
+            else if (st === "locked") col = "rgba(120,140,170,0.28)";
+            else col = st === "unread" ? "rgba(210,224,242,0.68)" : "rgba(170,190,215,0.38)";
 
             ctx.globalAlpha = (filtering && !(matches(a) && matches(b))) ? 0.12 : 1.0;   // dim links between filtered-out cards
             ctx.strokeStyle = col;
@@ -527,8 +531,9 @@ Item {
             readonly property bool crit: modelData.urgency === "critical"
             readonly property color rc: Qt.rgba(modelData.rgb[0] / 255, modelData.rgb[1] / 255, modelData.rgb[2] / 255, 1)
             readonly property int bw: Math.max(1, Math.round(m * (sel ? 2 : 1.5)))
-            readonly property bool hasImg: modelData.image !== ""   // game-style picture card: title on top, picture below
-            readonly property int band: Math.round((hasImg ? 24 : 14) * m)
+            readonly property bool hasImg: modelData.image !== ""
+            readonly property bool isIcon: hasImg && (modelData.image.indexOf("image://icon/") === 0 || modelData.image.indexOf("/icons/") >= 0)
+            readonly property int band: Math.round(24 * m)
             readonly property bool tiny: view.ui < 0.5          // too small for text: coloured block + letter only
 
             width: Math.round(modelData.w * m)
@@ -572,100 +577,69 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                color: card.st === "locked" ? "#E6101015" : "#F00A0B10"
+                color: card.st === "locked" ? "#E6111622" : "#F00A101C"
                 border.width: card.bw
                 border.color: card.sel ? view.cGold
                     : (card.crit ? "#E2554C"
-                    : card.st === "locked" ? "#668A7F66"
+                    : card.st === "locked" ? "#556E84A3"
                     : (card.st === "unread" ? card.rc : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, 0.55)))
             }
 
-            // coloured header band with the app name (like the game's coloured card tops)
+            // coloured header band with the title (Outer Wilds Ship Log card top)
             Rectangle {
                 x: card.bw
                 y: card.bw
                 width: card.width - 2 * card.bw
-                height: (card.tiny && !card.hasImg) ? card.height - 2 * card.bw : card.band
-                color: card.st === "locked" ? "#4D8A7F66"
-                    : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, card.st === "read" ? 0.55 : 0.92)
-                Text {
-                    visible: card.tiny
-                    anchors.centerIn: parent
-                    text: card.st === "locked" ? "?" : card.modelData.app.charAt(0).toUpperCase()
-                    color: card.st === "locked" ? view.cDim : "#0A0B10"
-                    font.family: "monospace"
-                    font.bold: true
-                    font.pixelSize: Math.max(8, Math.round(14 * card.m))
-                }
+                height: card.band
+                color: card.st === "locked" ? "#445A6E8C"
+                    : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, card.st === "read" ? 0.60 : 0.92)
                 Text {
                     visible: !card.tiny
-                    x: Math.round(5 * card.m)
+                    x: Math.round(4 * card.m)
                     anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - Math.round(10 * card.m)
-                    // picture cards put the title in the band (like the game); text cards put the app name there
-                    text: card.st === "locked" ? "? ? ?" : (card.hasImg ? card.modelData.summary : card.modelData.app.toUpperCase())
-                    wrapMode: card.hasImg ? Text.WordWrap : Text.NoWrap
-                    maximumLineCount: card.hasImg ? 2 : 1
+                    width: parent.width - Math.round(8 * card.m)
+                    text: card.st === "locked" ? "? ? ?" : (card.modelData.summary !== "" ? card.modelData.summary : card.modelData.app.toUpperCase())
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 2
                     elide: Text.ElideRight
-                    horizontalAlignment: card.hasImg ? Text.AlignHCenter : Text.AlignLeft
-                    color: card.st === "locked" ? view.cDim : "#0A0B10"
+                    horizontalAlignment: Text.AlignHCenter
+                    color: card.st === "locked" ? "#A0B0C8" : "#080C14"
                     font.family: "monospace"
                     font.bold: true
-                    font.pixelSize: Math.max(8, Math.round((card.hasImg ? 9 : 9) * card.m))
-                    font.letterSpacing: card.hasImg ? 0 : 1 * card.m
+                    font.pixelSize: Math.max(7, Math.round(8.5 * card.m))
                 }
             }
 
-            // thumbnail. Text cards: small monogram square. Picture cards: the picture fills the card below the title band
-            // (the monogram stays as the placeholder while a picture loads or if it fails to load).
+            // square picture / icon body below the header band
             Rectangle {
                 id: thumb
-                visible: !card.tiny || card.hasImg
-                x: card.hasImg ? card.bw : card.bw + Math.round(4 * card.m)
-                y: card.bw + card.band + (card.hasImg ? 0 : Math.round(4 * card.m))
-                width: card.hasImg ? card.width - 2 * card.bw : card.height - card.band - 2 * card.bw - Math.round(8 * card.m)
-                height: card.hasImg ? card.height - card.band - 2 * card.bw : card.height - card.band - 2 * card.bw - Math.round(8 * card.m)
-                color: card.hasImg ? "#10E6D5B8" : "#14E6D5B8"
-                border.width: card.hasImg ? 0 : 1
-                border.color: card.st === "locked" ? "#338A7F66" : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, 0.5)
+                x: card.bw
+                y: card.bw + card.band
+                width: card.width - 2 * card.bw
+                height: card.height - card.band - 2 * card.bw
+                color: card.st === "locked" ? "#141B29" : "#10192A"
                 Text {
                     anchors.centerIn: parent
                     visible: !(card.hasImg && cardImg.status === Image.Ready && card.st !== "locked")
                     text: card.st === "locked" ? "?" : (card.modelData.archive ? String(card.modelData.count) : card.modelData.app.charAt(0).toUpperCase())
-                    color: card.st === "locked" ? view.cDim : card.rc
+                    color: card.st === "locked" ? "#6D7F99" : card.rc
                     font.family: "monospace"
                     font.bold: true
-                    font.pixelSize: Math.max(10, Math.round((card.hasImg ? 26 : 18) * card.m))
+                    font.pixelSize: Math.max(10, Math.round(24 * card.m))
                 }
                 Image {
                     id: cardImg
                     anchors.fill: parent
-                    // locked cards never show their picture
+                    anchors.margins: card.isIcon ? Math.round(12 * card.m) : 0
                     source: (card.hasImg && card.st !== "locked") ? card.modelData.image : ""
                     visible: status === Image.Ready
-                    fillMode: Image.PreserveAspectCrop
+                    fillMode: card.isIcon ? Image.PreserveAspectFit : Image.PreserveAspectCrop
                     asynchronous: true
                     cache: true
                     smooth: true
                     sourceSize.width: 256
                     sourceSize.height: 256
                 }
-            }
-
-            Text {
-                visible: !card.tiny && !card.hasImg
-                x: thumb.x + thumb.width + Math.round(6 * card.m)
-                y: thumb.y
-                width: card.width - x - card.bw - Math.round(5 * card.m)
-                height: thumb.height
-                text: card.st === "locked" ? "???" : card.modelData.summary
-                wrapMode: Text.WordWrap
-                maximumLineCount: 2
-                elide: Text.ElideRight
-                verticalAlignment: Text.AlignVCenter
-                color: card.st === "locked" ? view.cDim : (card.st === "read" ? "#B9AB91" : view.cCream)
-                font.family: "monospace"
-                font.pixelSize: Math.max(8, Math.round(10 * card.m))
             }
 
             // "!" marker on unread cards (the game's unexplored-rumor marker)
@@ -739,8 +713,9 @@ Item {
     Rectangle {
         anchors.fill: parent
         anchors.margins: Math.round(18 * view.baseUi)
+        radius: Math.round(8 * view.baseUi)
         color: "transparent"
-        border.color: "#33D4AF37"
+        border.color: "#446B8DB8"
         border.width: Math.max(1, Math.round(view.baseUi))
     }
 

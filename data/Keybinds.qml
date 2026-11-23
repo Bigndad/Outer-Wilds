@@ -64,7 +64,6 @@ QtObject {
         { id: "zoomIn",    group: gOverlay,  ctx: "overlay", kind: "key",    label: "Zoom in",              hint: "",                                  def: "=" },
         { id: "zoomOut",   group: gOverlay,  ctx: "overlay", kind: "key",    label: "Zoom out",             hint: "",                                  def: "-" },
 
-        { id: "rumorMode", group: gMap,      ctx: "map",   kind: "key",      label: "Rumor Mode",           hint: "",                                  def: "R" },
 
         { id: "search",    group: gRumor,    ctx: "rumor", kind: "key",      label: "Search",               hint: "",                                  def: "/" },
         { id: "unread",    group: gRumor,    ctx: "rumor", kind: "key",      label: "Unread only",          hint: "",                                  def: "U" },

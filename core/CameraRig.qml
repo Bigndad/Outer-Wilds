@@ -33,7 +33,7 @@ Item {
     // While nothing is moving (no keys, no drag, camera settled, no scope) the scene only needs to redraw at
     // fpsIdle. Skipped frames change nothing, so Qt Quick renders nothing and the GPU sits idle.
     // Any input or camera motion runs at full display rate. fpsIdle: 0 = off (always full rate).
-    property real fpsIdle: 30
+    property real fpsIdle: WidgetConfig.fpsIdle
     property real _acc: 0.0
     function _heldAny() { for (const k in actDown) if (actDown[k] === true) return true; return false; }
     function _busy() {
@@ -180,19 +180,32 @@ Item {
 
     Component.onCompleted: {
         let s = [];
-        for (let i = 0; i < 380; i++) {
-            let u = Math.random() * 2 - 1;
+        const starCols = ["#FFFFFF", "#FFFFFF", "#E6F0FF", "#C8DCFF", "#FFF4E0", "#FFD8A8"];
+        const tilt = 0.42, cT = Math.cos(tilt), sT = Math.sin(tilt);
+        for (let i = 0; i < 780; i++) {
+            let inBand = i >= 520;
+            let u = inBand ? (Math.random() + Math.random() - 1.0) * 0.24 : (Math.random() * 2 - 1);
             let theta = Math.random() * Math.PI * 2;
-            let r = Math.sqrt(1 - u * u);
+            let r = Math.sqrt(Math.max(0.0, 1.0 - u * u));
             let dist = 8500 + Math.random() * 4500;
+            let sx = dist * r * Math.cos(theta);
+            let sy = dist * u;
+            let sz = dist * r * Math.sin(theta);
+            if (inBand) {
+                let ry = sy * cT - sz * sT;
+                let rz = sy * sT + sz * cT;
+                sy = ry; sz = rz;
+            }
+            let hero = !inBand && Math.random() < 0.06;
             s.push({
-                x: dist * r * Math.cos(theta),
-                y: dist * u,
-                z: dist * r * Math.sin(theta),
-                size: 0.8 + Math.random() * 1.6,
-                alpha: 0.25 + Math.random() * 0.7
+                x: sx, y: sy, z: sz,
+                size: hero ? (1.8 + Math.random() * 0.9) : (inBand ? (0.7 + Math.random() * 1.0) : (0.8 + Math.random() * 1.4)),
+                alpha: hero ? (0.75 + Math.random() * 0.25) : (inBand ? (0.16 + Math.random() * 0.42) : (0.22 + Math.random() * 0.68)),
+                col: starCols[Math.floor(Math.random() * starCols.length)],
+                glint: hero
             });
         }
+        s.sort((a, b) => a.col < b.col ? -1 : (a.col > b.col ? 1 : 0));
         stars = s;
 
         let d = [];
@@ -620,7 +633,7 @@ Item {
     property var screenHitboxes: []
 
     FrameAnimation {
-        running: root.active
+        running: root.active && NoctaliaBridge.desktopVisible
         onTriggered: {
             if (root.fpsIdle > 0) {
                 root._acc += frameTime;
@@ -764,7 +777,7 @@ Item {
             root.checkQuantumObserver();
 
             // background canvas: stars/orbits/dust only change when the camera or a highlight changes
-            let hlKey = root.lockedPlanetId + "|" + root.targetedPlanetId + "|" + root.hoveredPlanetId;
+            let hlKey = root.lockedPlanetId + "|" + root.targetedPlanetId + "|" + root.hoveredPlanetId + "|" + WidgetConfig.showOrbits + "|" + WidgetConfig.orbitOpacity + "|" + WidgetConfig.orbitWidth;
             if (root.camX !== root._pX || root.camY !== root._pY || root.camZ !== root._pZ ||
                 root.camYaw !== root._pYaw || root.camPitch !== root._pPitch ||
                 w !== root._pW || h !== root._pH || hlKey !== root._pHl) {
@@ -816,7 +829,7 @@ Item {
                 v[2] = -(dy * rsp + z1 * rcp);
             }
 
-            ctx.fillStyle = "#FFFFFF";
+            let lastCol = "";
             for (let i = 0; i < root.stars.length; i++) {
                 let st = root.stars[i];
                 toView(cx + st.x, cy + st.y, cz + st.z);
@@ -824,8 +837,14 @@ Item {
                 let sc = fov / v[2];
                 let sx = halfW + v[0] * sc, sy = halfH - v[1] * sc;
                 if (sx >= 0 && sx <= w && sy >= 0 && sy <= h) {
+                    if (st.col !== lastCol) { ctx.fillStyle = st.col; lastCol = st.col; }
                     ctx.globalAlpha = st.alpha;
                     ctx.fillRect(sx, sy, st.size, st.size);
+                    if (st.glint) {
+                        ctx.globalAlpha = st.alpha * 0.35;
+                        ctx.fillRect(sx - st.size * 1.4, sy + st.size * 0.25, st.size * 3.8, st.size * 0.5);
+                        ctx.fillRect(sx + st.size * 0.25, sy - st.size * 1.4, st.size * 0.5, st.size * 3.8);
+                    }
                 }
             }
 
@@ -860,8 +879,9 @@ Item {
 
             // orbits, clipped against a near plane so nothing projects to absurd coordinates
             const NEAR = 4.0;
-            ctx.lineWidth = 1.2;
-            for (let i = 0; i < root.bakedOrbits.length; i++) {
+            ctx.lineWidth = WidgetConfig.orbitWidth;
+            ctx.globalAlpha = WidgetConfig.orbitOpacity;
+            for (let i = 0; WidgetConfig.showOrbits && i < root.bakedOrbits.length; i++) {
                 let orb = root.bakedOrbits[i];
                 let isTwins = (orb.id === "twins_bary") && (
                     root.lockedPlanetId === "ash_twin" || root.lockedPlanetId === "ember_twin" ||
@@ -1024,7 +1044,10 @@ Item {
         height: side
         x: Math.floor(left0)
         y: Math.floor(top0)
-        visible: shown
+        visible: WidgetConfig.showReticles && shown
+        opacity: WidgetConfig.reticleOpacity
+        readonly property real rw: WidgetConfig.reticleWidth
+        onRwChanged: requestPaint()
         z: 25000
 
         onFracXChanged: requestPaint()
@@ -1040,7 +1063,7 @@ Item {
             ctx.translate(width / 2 + fracX, height / 2 + fracY);
             let diagAngles = [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4];
             ctx.strokeStyle = "rgba(220, 235, 245, 0.38)";
-            ctx.lineWidth = 1.2;
+            ctx.lineWidth = 1.2 * WidgetConfig.reticleWidth;
             let span = 0.14;
             for (let d = 0; d < 4; d++) {
                 ctx.beginPath();
@@ -1068,7 +1091,10 @@ Item {
         height: side
         x: Math.floor(left0)
         y: Math.floor(top0)
-        visible: shown
+        visible: WidgetConfig.showReticles && shown
+        opacity: WidgetConfig.reticleOpacity
+        readonly property real rw: WidgetConfig.reticleWidth
+        onRwChanged: requestPaint()
         z: 25000
 
         onFracXChanged: requestPaint()
@@ -1086,7 +1112,7 @@ Item {
             let diagAngles = [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4];
 
             ctx.strokeStyle = lockColor;
-            ctx.lineWidth = 2.0;
+            ctx.lineWidth = 2.0 * WidgetConfig.reticleWidth;
             let diagSpan = 0.28;
             for (let q = 0; q < 4; q++) {
                 ctx.beginPath();
@@ -1303,6 +1329,10 @@ Item {
     // --- SATELLITE HUD (stage 3): gauges, audio globe, movement indicator, key prompts ---
     SatelliteHUD {
         anchors.fill: parent
+        visible: WidgetConfig.showHud
+        opacity: WidgetConfig.hudOpacity
+        scale: WidgetConfig.hudScale
+        transformOrigin: Item.Center
         rig: root
     }
 
@@ -1335,6 +1365,9 @@ Item {
     // --- LOOP / SPEED PANEL (bottom right; the Control Centre's OPTIONS tab or the H key hides it) ---
     Rectangle {
         visible: WidgetConfig.showLoopPanel
+        opacity: WidgetConfig.loopPanelOpacity
+        scale: WidgetConfig.loopPanelScale
+        transformOrigin: Item.BottomRight
         z: 32000
         anchors.bottom: parent.bottom
         anchors.right: parent.right

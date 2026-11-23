@@ -123,6 +123,22 @@ QtObject {
     property var keyOverrides: ({})          // action id -> key sequence (Keybinds.qml); only the CHANGED keys are stored
     property bool showLoopPanel: true        // the bottom-right LOOP / SPEED panel (CameraRig)
     property bool shrinkFar: true            // widgets get much smaller when the planet is far away (WidgetSlot)
+    property int bakeW: 1024                 // planet bake texture width: 512, 1024, or 2048 (PlanetShader)
+    property bool showHud: true              // SatelliteHUD overlay (CameraRig)
+    property bool showOrbits: true           // orbital path lines (CameraRig)
+    property bool showLabels: true           // planet name / distance labels (PlanetShader)
+    property bool showReticles: true         // hover and lock reticles (CameraRig)
+    property int fpsIdle: 30                 // idle frame cap: 15, 30, 60, or 0 = off (CameraRig)
+    property real hudOpacity: 1.0            // SatelliteHUD opacity (0.1..1.0)
+    property real hudScale: 1.0              // SatelliteHUD scale (0.5..1.5)
+    property real orbitOpacity: 1.0          // orbit path opacity (0.1..1.0)
+    property real orbitWidth: 1.2            // orbit line thickness in px (0.5..4.0)
+    property real labelSize: 1.0             // planet label font multiplier (0.6..2.0)
+    property real labelDist: 1500            // max distance to show unselected labels
+    property real reticleOpacity: 1.0        // hover/lock reticle opacity (0.1..1.0)
+    property real reticleWidth: 1.0          // reticle stroke multiplier (0.5..3.0)
+    property real loopPanelOpacity: 1.0      // bottom-right loop panel opacity (0.2..1.0)
+    property real loopPanelScale: 1.0        // bottom-right loop panel scale (0.6..1.5)
     property string focusPlanet: ""          // the planet the camera is targeting / locked on ("" = none); set by KeyHost
     property string panelTab: "widgets"      // settings panel tab: widgets | keys | options
     property bool capturingKeys: false       // the panel is recording a key: HyprIpc parks Hyprland's own binds so Super+... reaches it
@@ -445,11 +461,27 @@ QtObject {
     function resetKeys() { keyOverrides = ({}); _bump(true); }
     function setShrinkFar(v) { if (shrinkFar === v) return; shrinkFar = v; _bump(true); }
     function setShowLoopPanel(v) { if (showLoopPanel === v) return; showLoopPanel = v; _bump(true); }
+    function setBakeW(v) { const n = Number(v); if (n !== 512 && n !== 1024 && n !== 2048) return; if (bakeW === n) return; bakeW = n; _bump(true); }
+    function setShowHud(v) { if (showHud === v) return; showHud = v; _bump(true); }
+    function setShowOrbits(v) { if (showOrbits === v) return; showOrbits = v; _bump(true); }
+    function setShowLabels(v) { if (showLabels === v) return; showLabels = v; _bump(true); }
+    function setShowReticles(v) { if (showReticles === v) return; showReticles = v; _bump(true); }
+    function setFpsIdle(v) { const n = Number(v); if (n !== 0 && n !== 15 && n !== 30 && n !== 60) return; if (fpsIdle === n) return; fpsIdle = n; _bump(true); }
+    function setHudOpacity(v) { const n = Math.max(0.1, Math.min(1.0, Number(v))); if (!isFinite(n) || hudOpacity === n) return; hudOpacity = n; _bump(true); }
+    function setHudScale(v) { const n = Math.max(0.5, Math.min(1.5, Number(v))); if (!isFinite(n) || hudScale === n) return; hudScale = n; _bump(true); }
+    function setOrbitOpacity(v) { const n = Math.max(0.1, Math.min(1.0, Number(v))); if (!isFinite(n) || orbitOpacity === n) return; orbitOpacity = n; _bump(true); }
+    function setOrbitWidth(v) { const n = Math.max(0.4, Math.min(4.0, Number(v))); if (!isFinite(n) || orbitWidth === n) return; orbitWidth = n; _bump(true); }
+    function setLabelSize(v) { const n = Math.max(0.6, Math.min(2.0, Number(v))); if (!isFinite(n) || labelSize === n) return; labelSize = n; _bump(true); }
+    function setLabelDist(v) { const n = Math.max(400, Math.min(8000, Number(v))); if (!isFinite(n) || labelDist === n) return; labelDist = n; _bump(true); }
+    function setReticleOpacity(v) { const n = Math.max(0.1, Math.min(1.0, Number(v))); if (!isFinite(n) || reticleOpacity === n) return; reticleOpacity = n; _bump(true); }
+    function setReticleWidth(v) { const n = Math.max(0.5, Math.min(3.0, Number(v))); if (!isFinite(n) || reticleWidth === n) return; reticleWidth = n; _bump(true); }
+    function setLoopPanelOpacity(v) { const n = Math.max(0.2, Math.min(1.0, Number(v))); if (!isFinite(n) || loopPanelOpacity === n) return; loopPanelOpacity = n; _bump(true); }
+    function setLoopPanelScale(v) { const n = Math.max(0.6, Math.min(1.5, Number(v))); if (!isFinite(n) || loopPanelScale === n) return; loopPanelScale = n; _bump(true); }
 
     // ---------------- persistence ----------------
     function serialize() {
         return JSON.stringify({ version: 1, globalSpeed: globalSpeed, overrides: overrides, extras: extras,
-                                keys: keyOverrides, ui: { loopPanel: showLoopPanel, shrinkFar: shrinkFar } }, null, 2);
+                                keys: keyOverrides, ui: { loopPanel: showLoopPanel, shrinkFar: shrinkFar, bakeW: bakeW, hud: showHud, orbits: showOrbits, labels: showLabels, reticles: showReticles, fpsIdle: fpsIdle, hudOpacity: hudOpacity, hudScale: hudScale, orbitOpacity: orbitOpacity, orbitWidth: orbitWidth, labelSize: labelSize, labelDist: labelDist, reticleOpacity: reticleOpacity, reticleWidth: reticleWidth, loopPanelOpacity: loopPanelOpacity, loopPanelScale: loopPanelScale } }, null, 2);
     }
 
     // called by WidgetConfigStore after reading widgets.json ("" = no file yet)
@@ -465,6 +497,25 @@ QtObject {
         keyOverrides = (obj && obj.keys && typeof obj.keys === "object") ? obj.keys : ({});
         showLoopPanel = !(obj && obj.ui && obj.ui.loopPanel === false);
         shrinkFar = !(obj && obj.ui && obj.ui.shrinkFar === false);
+        const bw = obj && obj.ui ? Number(obj.ui.bakeW) : 1024;
+        bakeW = (bw === 512 || bw === 1024 || bw === 2048) ? bw : 1024;
+        showHud = !(obj && obj.ui && obj.ui.hud === false);
+        showOrbits = !(obj && obj.ui && obj.ui.orbits === false);
+        showLabels = !(obj && obj.ui && obj.ui.labels === false);
+        showReticles = !(obj && obj.ui && obj.ui.reticles === false);
+        const fi = obj && obj.ui && obj.ui.fpsIdle !== undefined ? Number(obj.ui.fpsIdle) : 30;
+        fpsIdle = (fi === 0 || fi === 15 || fi === 30 || fi === 60) ? fi : 30;
+        const u = (obj && obj.ui) ? obj.ui : {};
+        hudOpacity = typeof u.hudOpacity === 'number' ? u.hudOpacity : 1.0;
+        hudScale = typeof u.hudScale === 'number' ? u.hudScale : 1.0;
+        orbitOpacity = typeof u.orbitOpacity === 'number' ? u.orbitOpacity : 1.0;
+        orbitWidth = typeof u.orbitWidth === 'number' ? u.orbitWidth : 1.2;
+        labelSize = typeof u.labelSize === 'number' ? u.labelSize : 1.0;
+        labelDist = typeof u.labelDist === 'number' ? u.labelDist : 1500;
+        reticleOpacity = typeof u.reticleOpacity === 'number' ? u.reticleOpacity : 1.0;
+        reticleWidth = typeof u.reticleWidth === 'number' ? u.reticleWidth : 1.0;
+        loopPanelOpacity = typeof u.loopPanelOpacity === 'number' ? u.loopPanelOpacity : 1.0;
+        loopPanelScale = typeof u.loopPanelScale === 'number' ? u.loopPanelScale : 1.0;
         loaded = true;
         _bump(false);
         _quiet = false;
