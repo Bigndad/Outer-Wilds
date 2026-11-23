@@ -40,6 +40,9 @@ ShellRoot {
             WlrLayershell.namespace: "outerwilds-solar-system"
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
+            // cover the whole output: ignore the bar's reserved strip (the bar still draws over the scene)
+            exclusionMode: ExclusionMode.Ignore
+
             anchors {
                 top: true
                 bottom: true

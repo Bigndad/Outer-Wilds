@@ -1,0 +1,645 @@
+diff --git a/WIDGETS.md b/WIDGETS.md
+new file mode 100644
+index 0000000..30ed2b3
+--- /dev/null
++++ b/WIDGETS.md
+@@ -0,0 +1,101 @@
++# Writing widgets for the Outer Wilds desktop
++
++This file is written so you can paste it into an AI (Gemini, Claude...) and ask: *"make a widget that shows X"*.
++Give it this file plus the one thing you want; it should hand back two files.
++
++## 1. A widget is a folder with two files
++
++```
++widgets/user/<name>/Main.qml      the widget
++widgets/user/<name>/widget.json   its name, default size/orbit, and its options
++```
++
++`ow new-widget <name>` creates both with a working example. After adding or editing a `widget.json`, run `ow rescan`
++(edits to `Main.qml` need `ow restart`). Then open the settings panel, `+ ADD`, group **Custom**.
++Nothing else needs editing: no registry, no qmldir, no catalog.
++
++## 2. Main.qml rules
++
++```qml
++import QtQuick
++import "../../.."                 // REQUIRED, exactly this path: WidgetCard, WidgetData, Sensors, ...
++
++WidgetCard {
++    id: w
++    title: "CPU"                  // card title ("" = none)
++    designW: 240                  // size in px at ui = 1
++    designH: 110
++    property var cfg: ({ unit: "%" })      // the options (section 4); defaults here must equal widget.json's
++
++    Text {
++        anchors.centerIn: parent
++        text: Sensors.cpuPercent + w.cfg.unit
++        color: w.cCream
++        font.family: "monospace"
++        font.pixelSize: Math.max(8, Math.round(28 * w.ui))
++    }
++}
++```
++
++* The root MUST be `WidgetCard`. Put children inside it.
++* **Every size is multiplied by `w.ui`** (font sizes, margins, spacing, radii), and font sizes get a floor with `Math.max`.
++  Never hard-code pixels: the widget is scaled as the camera moves. `w.ui` is 1.0 at design size.
++* Palette: `w.cCream` (text), `w.cGold` (accent), `w.cDim` (secondary text), `w.cBg`. Monospace font by default.
++* Do NOT import `Quickshell` in a widget (the scene is also tested in plain `qml`). Data comes from the singletons below.
++* Do not run processes or timers faster than 1 s. Use `WidgetData.now` (updates each second) instead of your own clock Timer.
++* `w.rig` is the camera rig (rarely needed).
++
++## 3. Data you can read (singletons, available through `import "../../.."`)
++
++| Name | Properties |
++|---|---|
++| `WidgetData` | `now` (Date, each second), `uptimeSeconds`, `workspaces` ([{id, windows}]), `activeWorkspace`, `notesText`; `formatUptime(sec)`, `switchWorkspace(id)` |
++| `Sensors` | `cpuPercent`, `cpuTempC`, `ramPercent`, `ramUsedGb`, `ramTotalGb`, `gpuPercent`, `gpuTempC`, `vramPercent`, `swapUsedGb`, `nvmeTempC`, `disks` ([{mount, totalGb, usedGb}]) |
++| `HudData` | `cpu`, `ram`, `battery` (0..1), `audioActive`, `bandsA` / `bandsB` (audio bands) |
++
++Finished examples to copy from: `widgets/ClockWidget.qml`, `widgets/UptimeWidget.qml`, `widgets/lucid/`, `widgets/serp/`.
++
++## 4. widget.json
++
++```json
++{
++  "name": "CPU meter",
++  "group": "Custom",
++  "designW": 240,
++  "title": "CPU",
++  "default": { "show": "focus", "worldW": 120, "orbit": { "k": 2.0, "add": 40, "speed": 0.2 } },
++  "settings": [
++    { "key": "unit", "type": "choice", "label": "Unit", "choices": ["%", " pct"], "default": "%" },
++    { "key": "warn", "type": "number", "label": "Warn above", "min": 0, "max": 100, "step": 1, "unit": "%", "default": 80 }
++  ]
++}
++```
++
++* `designW` must equal the widget's `designW`. `title` is optional. `default` is optional: `show` is `"focus"` (fades in when the
++  planet is near) or `"always"`; `worldW` is the card width in world units; `orbit` is `k` (x host radius), `add`, `tilt`, `node`,
++  `phase` (radians), `speed` (rad/s, negative = other way).
++* **Settings.** Each one is `{ key, type, label, default }`. The panel draws the control and saves the value; the widget reads it as
++  `cfg.<key>`. Types:
++
++| type | control | extra fields | value |
++|---|---|---|---|
++| `toggle` | switch | | true / false |
++| `number` | slider + typed box (typing is never clamped) | `min`, `max`, `step`, `unit` | number |
++| `text` | text box | | string |
++| `choice` | buttons | `choices`: `["a","b"]` or `[{ "value": 1, "label": "One" }]` | the chosen value |
++| `color` | text box + swatch | | `"#RRGGBB"` or `"#AARRGGBB"` |
++| `font` | text box | | font family name |
++| `file` | text box (path) | | string |
++
++* Keep the `cfg` defaults in `Main.qml` identical to the `default` values here; they only show for the instant before the saved values arrive.
++* Saved values live in `widgets.json` under `overrides.<id>.settings`; a value equal to the default is not stored.
++* Built-in widgets use the same `settings: [...]` array inside their entry in `WidgetConfig.builtinCatalog`. The **Clock** entry
++  plus `widgets/ClockWidget.qml` is a complete example with seven options.
++
++## 5. Checklist before handing a widget back
++
++1. `import "../../.."` is the second line. Root is `WidgetCard`. No `Quickshell` import.
++2. Every pixel value uses `w.ui`.
++3. `designW` in widget.json equals `designW` in Main.qml.
++4. Each setting in widget.json has a matching `cfg.<key>` in Main.qml, with the same default.
++5. widget.json is valid JSON (no comments, no trailing commas).
+diff --git a/bin/ow b/bin/ow
+index 1b86caa..85154ad 100755
+--- a/bin/ow
++++ b/bin/ow
+@@ -1,5 +1,5 @@
+ #!/bin/sh
+-# ow: control the Outer Wilds desktop.  ow start | stop | restart | status | log | doctor
++# ow: control the Outer Wilds desktop.  ow start | stop | restart | status | log | doctor | rescan | new-widget <name>
+ CFG=outerwilds
+ case "$1" in
+   start)   pgrep -f "qs.*-c $CFG" >/dev/null && { echo "already running"; exit 0; }
+@@ -8,6 +8,48 @@ case "$1" in
+   restart) qs kill -c "$CFG" 2>/dev/null; sleep 1; setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo restarted ;;
+   status)  qs -c "$CFG" ipc call system status ;;
+   log)     qs -c "$CFG" log ;;
++  rescan)  qs -c "$CFG" ipc call widgets rescan ;;
++  new-widget)
++    NAME="$2"
++    case "$NAME" in ""|*[!A-Za-z0-9_-]*) echo "usage: ow new-widget <name>   (letters, digits, - and _ only)"; exit 1 ;; esac
++    DIR="${XDG_CONFIG_HOME:-$HOME/.config}/quickshell/$CFG/widgets/user/$NAME"
++    [ -e "$DIR" ] && { echo "$DIR already exists"; exit 1; }
++    UP=$(echo "$NAME" | tr 'a-z' 'A-Z')
++    mkdir -p "$DIR"
++    cat > "$DIR/widget.json" <<EOF
++{
++  "name": "$NAME",
++  "group": "Custom",
++  "designW": 240,
++  "title": "$UP",
++  "default": { "show": "focus", "worldW": 120, "orbit": { "k": 2.0, "add": 40, "speed": 0.2 } },
++  "settings": []
++}
++EOF
++    cat > "$DIR/Main.qml" <<EOF
++import QtQuick
++import "../../.."          // the OW registry: WidgetCard, WidgetData, Sensors, ...
++
++WidgetCard {
++    id: w
++    title: "$UP"
++    designW: 240
++    designH: 110
++
++    // options from widget.json "settings" arrive here as cfg.<key> (keep the defaults equal to widget.json's)
++    property var cfg: ({})
++
++    Text {
++        anchors.centerIn: parent
++        text: Qt.formatTime(WidgetData.now, "HH:mm:ss")
++        color: w.cCream
++        font.family: "monospace"
++        font.pixelSize: Math.max(8, Math.round(28 * w.ui))      // always scale sizes by w.ui
++    }
++}
++EOF
++    echo "created $DIR"
++    echo "next: ow rescan, then add it from the settings panel (+ ADD, group: Custom); see WIDGETS.md" ;;
+   doctor)
+     for c in qs hyprctl busctl noctalia cava gtk-launch; do
+       if command -v "$c" >/dev/null 2>&1; then echo "ok       $c"; else echo "MISSING  $c"; fi
+@@ -17,5 +59,5 @@ case "$1" in
+     echo; echo "gpu busy file:"; ls /sys/class/drm/card*/device/gpu_busy_percent 2>&1 | head -1
+     echo; echo "layer surface:"; hyprctl layers 2>/dev/null | grep -i outerwilds || echo "  (not running)"
+     echo; echo "shell status:"; qs -c "$CFG" ipc call system status 2>&1 | head -3 ;;
+-  *) echo "usage: ow start|stop|restart|status|log|doctor"; exit 1 ;;
++  *) echo "usage: ow start|stop|restart|status|log|doctor|rescan|new-widget <name>"; exit 1 ;;
+ esac
+diff --git a/data/WidgetConfig.qml b/data/WidgetConfig.qml
+index 8f93460..5d4e1e1 100644
+--- a/data/WidgetConfig.qml
++++ b/data/WidgetConfig.qml
+@@ -35,8 +35,17 @@ QtObject {
+     // Every widget file that can be placed. `source` is relative to widgets/ (same as WidgetLayer defs).
+     // designW = the file's width in px at ui = 1 (used to keep the on-screen size sensible when a slot's widget type is swapped).
+     // title   = card title override for widgets that take one (blank = the widget's own).
+-    readonly property var catalog: [
+-        { source: "ClockWidget.qml",             name: "Clock",                 group: "Outer Wilds",    designW: 300 },
++    readonly property var builtinCatalog: [
++        { source: "ClockWidget.qml",             name: "Clock",                 group: "Outer Wilds",    designW: 300,
++          settings: [
++              { key: "hour24",       type: "toggle", label: "24-hour clock",  default: true },
++              { key: "showSeconds",  type: "toggle", label: "Show seconds",   default: true },
++              { key: "showDate",     type: "toggle", label: "Show date",      default: true },
++              { key: "dateFormat",   type: "text",   label: "Date format",    default: "dddd, d MMMM yyyy" },
++              { key: "timeColor",    type: "color",  label: "Time colour",    default: "#E6D5B8" },
++              { key: "secondsColor", type: "color",  label: "Seconds colour", default: "#D4AF37" },
++              { key: "font",         type: "font",   label: "Font",           default: "monospace" }
++          ] },
+         { source: "LoopWidget.qml",              name: "Loop timer",            group: "Outer Wilds",    designW: 276 },
+         { source: "UptimeWidget.qml",            name: "Uptime",                group: "Outer Wilds",    designW: 236 },
+         { source: "DateWorldWidget.qml",         name: "Date / world clocks",   group: "Outer Wilds",    designW: 276 },
+@@ -96,6 +105,12 @@ QtObject {
+         { source: "serp/AnserinBubbleCard.qml", name: "Processes (small)", group: "Other", designW: 240, title: "PROCESSES" }
+     ]
+ 
++    // Drop-in widgets: every widgets/user/<name>/widget.json found by WidgetConfigStore (see WIDGETS.md).
++    // Same entry shape as builtinCatalog, plus `default` (size / orbit / show) and `settings` (the schema the panel draws).
++    property var userCatalog: []
++    property var catalog: builtinCatalog.concat(userCatalog)
++    function setUserCatalog(list) { userCatalog = list; _bump(false); }
++
+     // ---------------- state ----------------
+     property var defaults: []        // registered by WidgetLayer (its baseDefs)
+     property var extras: []          // widgets added from the panel (complete defs, ids "x1", "x2", ...)
+@@ -152,7 +167,20 @@ QtObject {
+ 
+     // ---------------- merge ----------------
+     // base def + this id's overrides -> the def the slot actually uses (a fresh object each call).
++    // the widget's option values: schema defaults, then this id's saved overrides (a widget reads them as `cfg.key`)
++    function _cfgFor(source, ov) {
++        const c = catalogEntry(source), cfg = {};
++        const sch = c && Array.isArray(c.settings) ? c.settings : [];
++        for (let i = 0; i < sch.length; i++) cfg[sch[i].key] = sch[i].default;
++        if (ov && ov.settings) for (const k in ov.settings) cfg[k] = ov.settings[k];
++        return cfg;
++    }
+     function _resolveOne(base, ov, isExtra) {
++        const d = _resolveCore(base, ov, isExtra);
++        d.cfg = _cfgFor(d.source, ov);
++        return d;
++    }
++    function _resolveCore(base, ov, isExtra) {
+         const d = _clone(base);
+         d.baseHost = base.host;
+         d.baseSource = base.source;
+@@ -257,6 +285,12 @@ QtObject {
+     function setField(id, field, value) {
+         const base = _baseFor(id);
+         if (!base) return;
++        // the only things refused are the ones that break the scene: NaN/Infinity, a size <= 0, a negative orbit radius
++        if (typeof value === "number") {
++            if (!isFinite(value)) return;
++            if (field === "size" && !(value > 0)) return;
++            if (field === "k" && value < 0) value = 0;
++        }
+         const baseVal = { host: base.host, enabled: true, removed: false, size: 1, speed: base.orbit.speed, k: base.orbit.k, tilt: base.orbit.tilt,
+                           node: base.orbit.node || 0, show: base.show, source: base.source }[field];
+         const o = _clone(overrides);
+@@ -267,7 +301,25 @@ QtObject {
+         _bump(true);
+     }
+ 
+-    function setGlobalSpeed(v) { globalSpeed = v; _bump(true); }
++    function setGlobalSpeed(v) { if (!isFinite(v) || v < 0) return; globalSpeed = v; _bump(true); }
++
++    // one widget option (schema key) -> saved under overrides[id].settings; a value equal to the default is dropped
++    function setSetting(id, key, value) {
++        const base = _baseFor(id);
++        if (!base) return;
++        const src = (overrides[id] && overrides[id].source !== undefined) ? overrides[id].source : base.source;
++        const c = catalogEntry(src);
++        let def;
++        if (c && Array.isArray(c.settings)) for (let i = 0; i < c.settings.length; i++) if (c.settings[i].key === key) def = c.settings[i].default;
++        const o = _clone(overrides);
++        if (!o[id]) o[id] = {};
++        const st = o[id].settings ? o[id].settings : {};
++        if (JSON.stringify(value) === JSON.stringify(def)) delete st[key]; else st[key] = value;
++        if (Object.keys(st).length === 0) delete o[id].settings; else o[id].settings = st;
++        if (Object.keys(o[id]).length === 0) delete o[id];
++        overrides = o;
++        _bump(true);
++    }
+ 
+     function resetWidget(id) {
+         if (!overrides[id]) return;
+@@ -301,6 +353,12 @@ QtObject {
+             orbit: { k: 2.0, add: 40, tilt: Math.sin(seed * 1.7) * 0.9, node: seed % 3.0, phase: seed, speed: 0.2 }
+         };
+         if (c && c.title !== undefined) def.title = c.title;
++        if (c && c.default && typeof c.default === "object") {      // a drop-in widget's own defaults (host is always the one asked for)
++            const m = c.default;
++            for (const k of ["show", "worldW", "worldWk", "minUi", "maxUi"]) if (m[k] !== undefined) def[k] = m[k];
++            if (m.worldW !== undefined && m.worldWk === undefined) delete def.worldWk;
++            if (m.orbit) for (const k in m.orbit) def.orbit[k] = m.orbit[k];
++        }
+         const e = extras.slice();
+         e.push(def);
+         extras = e;
+diff --git a/data/WidgetConfigStore.qml b/data/WidgetConfigStore.qml
+index 9f854a6..a2fa64c 100644
+--- a/data/WidgetConfigStore.qml
++++ b/data/WidgetConfigStore.qml
+@@ -23,4 +23,51 @@ Scope {
+         target: WidgetConfig
+         function onSaveRequested(text) { file.setText(text); }
+     }
++
++    // ---- drop-in widgets: widgets/user/<name>/{Main.qml, widget.json}  (see WIDGETS.md) ----
++    readonly property string dir: root.path.replace(/\/[^\/]*$/, "")
++    readonly property var settingTypes: ["toggle", "number", "text", "choice", "color", "font", "file"]
++
++    function _parseManifests(out) {
++        const list = [];
++        const chunks = out.split("@@@");
++        for (let i = 1; i < chunks.length; i++) {
++            const nl = chunks[i].indexOf("\n");
++            const folder = chunks[i].substring(0, nl).trim();
++            let m;
++            try { m = JSON.parse(chunks[i].substring(nl + 1)); }
++            catch (e) { console.warn("widgets/user/" + folder + "/widget.json is not valid JSON, skipped: " + e); continue; }
++            const settings = [];
++            if (Array.isArray(m.settings)) {
++                for (const s of m.settings) {
++                    if (!s || typeof s.key !== "string" || settingTypes.indexOf(s.type) < 0) {
++                        console.warn("widgets/user/" + folder + ": a setting needs a key and one of the types " + settingTypes.join(", ")); continue;
++                    }
++                    settings.push(s);
++                }
++            }
++            const e = { source: "user/" + folder + "/Main.qml", name: m.name || folder, group: m.group || "Custom",
++                        designW: m.designW > 0 ? m.designW : 240, settings: settings, user: true };
++            if (m.title !== undefined) e.title = m.title;
++            if (m.default && typeof m.default === "object") e.default = m.default;
++            list.push(e);
++        }
++        return list;
++    }
++
++    function rescan() { scan.running = true; }
++    Component.onCompleted: rescan()
++
++    Process {
++        id: scan
++        command: ["sh", "-c", "for f in \"$1\"/widgets/user/*/widget.json; do [ -f \"$f\" ] || continue; echo \"@@@$(basename \"$(dirname \"$f\")\")\"; cat \"$f\"; echo; done", "sh", root.dir]
++        stdout: StdioCollector {
++            onStreamFinished: WidgetConfig.setUserCatalog(root._parseManifests(text))
++        }
++    }
++
++    IpcHandler {
++        target: "widgets"
++        function rescan(): void { root.rescan(); }
++    }
+ }
+diff --git a/settings/SettingsPanel.qml b/settings/SettingsPanel.qml
+index 051695a..836eaf6 100644
+--- a/settings/SettingsPanel.qml
++++ b/settings/SettingsPanel.qml
+@@ -344,7 +344,15 @@ Rectangle {
+         property real step: 0.01
+         property string text: ""
+         property bool bipolar: false
++        property real typedScale: 1.0      // shown number = value * typedScale (degrees for tilt / turn)
+         signal moved(real v)
++        // the number at the right is a text box: type any value, nothing clamps it (only the drag is limited to from..to)
++        function commitTyped(str) {
++            const m = String(str).match(/-?\d+(?:\.\d+)?|-?\.\d+/);
++            if (!m) return;
++            const v = parseFloat(m[0]) / s.typedScale;
++            if (isFinite(v)) s.moved(v);
++        }
+         readonly property real frac: to > from ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
+         implicitHeight: 26
+ 
+@@ -368,16 +376,20 @@ Rectangle {
+                 color: ma.pressed ? root.cCream : root.cGold
+             }
+         }
+-        Text {
++        TextInput {
++            id: valBox
+             anchors.right: parent.right
+             anchors.verticalCenter: parent.verticalCenter
+             width: 104
+-            horizontalAlignment: Text.AlignRight
++            horizontalAlignment: TextInput.AlignRight
+             text: s.text
+-            color: root.cCream
++            color: activeFocus ? root.cGold : root.cCream
+             font.family: root.mono
+             font.pixelSize: 11
+-            elide: Text.ElideRight
++            selectByMouse: true
++            clip: true
++            onAccepted: { s.commitTyped(text); focus = false; }
++            onActiveFocusChanged: { if (activeFocus) selectAll(); else text = Qt.binding(() => s.text); }
+         }
+         MouseArea {
+             id: ma
+@@ -395,6 +407,42 @@ Rectangle {
+         }
+     }
+ 
++    component OWTextField: Rectangle {
++        id: tf
++        property string value: ""
++        property bool showSwatch: false
++        signal edited(string v)
++        implicitHeight: 26
++        radius: 3
++        color: "#0D0F14"
++        border.width: 1
++        border.color: tfIn.activeFocus ? root.cGold : root.cLine
++        Rectangle {
++            visible: tf.showSwatch
++            x: 6
++            anchors.verticalCenter: parent.verticalCenter
++            width: 14; height: 14; radius: 2
++            color: /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(tf.value) ? tf.value : "transparent"
++            border.width: 1
++            border.color: root.cLine
++        }
++        TextInput {
++            id: tfIn
++            anchors.fill: parent
++            anchors.leftMargin: tf.showSwatch ? 28 : 10
++            anchors.rightMargin: 8
++            verticalAlignment: TextInput.AlignVCenter
++            clip: true
++            selectByMouse: true
++            text: tf.value
++            color: root.cCream
++            font.family: root.mono
++            font.pixelSize: 11
++            onAccepted: { tf.edited(text); focus = false; }
++            onActiveFocusChanged: { if (!activeFocus) { if (text !== tf.value) tf.edited(text); text = Qt.binding(() => tf.value); } }
++        }
++    }
++
+     component FieldLabel: Text {
+         color: root.cDim
+         font.family: root.mono
+@@ -550,7 +598,7 @@ Rectangle {
+             OWSlider {
+                 y: 50
+                 width: parent.width
+-                from: 0; to: 3; step: 0.05
++                from: 0; to: 10; step: 0.05
+                 value: WidgetConfig.globalSpeed
+                 text: WidgetConfig.globalSpeed.toFixed(2) + "×"
+                 onMoved: (v) => WidgetConfig.setGlobalSpeed(v)
+@@ -799,7 +847,7 @@ Rectangle {
+                                             FieldLabel { text: "SIZE"; topPadding: 4 }
+                                             OWSlider {
+                                                 width: parent.width
+-                                                from: 0.3; to: 3.0; step: 0.05
++                                                from: 0.1; to: 5.0; step: 0.05
+                                                 value: row.d ? row.d.size : 1
+                                                 text: (row.d ? row.d.size : 1).toFixed(2) + "×"
+                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "size", v)
+@@ -808,7 +856,7 @@ Rectangle {
+                                             FieldLabel { text: "ORBIT SPEED  (− = other way, 0 = parked)" }
+                                             OWSlider {
+                                                 width: parent.width
+-                                                from: -0.8; to: 0.8; step: 0.01
++                                                from: -2.0; to: 2.0; step: 0.01
+                                                 bipolar: true
+                                                 value: row.d ? row.d.orbit.speed : 0
+                                                 text: row.d ? root.fmtSpeed(row.d.orbit.speed) : ""
+@@ -818,7 +866,7 @@ Rectangle {
+                                             FieldLabel { text: "ORBIT DISTANCE" }
+                                             OWSlider {
+                                                 width: parent.width
+-                                                from: 1.1; to: 4.5; step: 0.05
++                                                from: 0.5; to: 10.0; step: 0.05
+                                                 value: row.d ? row.d.orbit.k : 2
+                                                 text: (row.d ? row.d.orbit.k : 2).toFixed(2) + " radii"
+                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "k", v)
+@@ -834,7 +882,8 @@ Rectangle {
+                                             FieldLabel { text: "ORBIT AXIS"; topPadding: 4 }
+                                             OWSlider {
+                                                 width: parent.width
+-                                                from: -1.5; to: 1.5; step: 0.05
++                                                from: -3.14; to: 3.14; step: 0.05
++                                                typedScale: 57.2958
+                                                 value: row.d ? row.d.orbit.tilt : 0
+                                                 text: "tilt " + Math.round((row.d ? row.d.orbit.tilt : 0) * 57.2958) + "°"
+                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "tilt", v)
+@@ -842,6 +891,7 @@ Rectangle {
+                                             OWSlider {
+                                                 width: parent.width
+                                                 from: 0; to: 6.28; step: 0.05
++                                                typedScale: 57.2958
+                                                 value: row.d ? (row.d.orbit.node || 0) : 0
+                                                 text: "turn " + Math.round((row.d ? (row.d.orbit.node || 0) : 0) * 57.2958) + "°"
+                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "node", v)
+@@ -865,6 +915,78 @@ Rectangle {
+                                                 }
+                                             }
+ 
++                                            Column {
++                                                id: cfgCol
++                                                width: parent.width
++                                                spacing: 6
++                                                readonly property var schema: {
++                                                    const c = row.d ? WidgetConfig.catalogEntry(row.d.source) : null;
++                                                    return c && Array.isArray(c.settings) ? c.settings : [];
++                                                }
++                                                visible: schema.length > 0
++
++                                                FieldLabel { text: "WIDGET OPTIONS"; topPadding: 4 }
++
++                                                Repeater {
++                                                    model: cfgCol.schema
++                                                    delegate: Column {
++                                                        id: opt
++                                                        required property var modelData
++                                                        readonly property var s: modelData
++                                                        readonly property var cur: (row.d && row.d.cfg && row.d.cfg[s.key] !== undefined) ? row.d.cfg[s.key] : s.default
++                                                        readonly property string lbl: String(s.label || s.key)
++                                                        width: cfgCol.width
++                                                        spacing: 4
++
++                                                        // toggle: switch + label on one line; every other type: label, then the control
++                                                        Row {
++                                                            visible: opt.s.type === "toggle"
++                                                            spacing: 8
++                                                            height: 18
++                                                            OWSwitch { on: opt.cur === true; onToggled: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v) }
++                                                            FieldLabel { anchors.verticalCenter: parent.verticalCenter; text: opt.lbl.toUpperCase() }
++                                                        }
++                                                        FieldLabel { visible: opt.s.type !== "toggle"; text: opt.lbl.toUpperCase() }
++
++                                                        OWSlider {
++                                                            visible: opt.s.type === "number"
++                                                            width: opt.width
++                                                            from: opt.s.min !== undefined ? opt.s.min : 0
++                                                            to: opt.s.max !== undefined ? opt.s.max : 100
++                                                            step: opt.s.step !== undefined ? opt.s.step : 1
++                                                            value: Number(opt.cur)
++                                                            text: String(Math.round(Number(opt.cur) * 1000) / 1000) + (opt.s.unit ? " " + opt.s.unit : "")
++                                                            onMoved: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v)
++                                                        }
++
++                                                        Flow {
++                                                            visible: opt.s.type === "choice"
++                                                            width: opt.width
++                                                            spacing: 5
++                                                            Repeater {
++                                                                model: opt.s.type === "choice" && Array.isArray(opt.s.choices) ? opt.s.choices : []
++                                                                delegate: OWButton {
++                                                                    required property var modelData
++                                                                    readonly property var val: (typeof modelData === "object") ? modelData.value : modelData
++                                                                    label: String((typeof modelData === "object") ? (modelData.label !== undefined ? modelData.label : modelData.value) : modelData)
++                                                                    pad: 7
++                                                                    active: opt.cur === val
++                                                                    onClicked: WidgetConfig.setSetting(row.wid, opt.s.key, val)
++                                                                }
++                                                            }
++                                                        }
++
++                                                        OWTextField {
++                                                            visible: opt.s.type === "text" || opt.s.type === "font" || opt.s.type === "file" || opt.s.type === "color"
++                                                            width: opt.width
++                                                            showSwatch: opt.s.type === "color"
++                                                            value: String(opt.cur)
++                                                            onEdited: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v)
++                                                        }
++                                                    }
++                                                }
++                                            }
++
+                                             Row {
+                                                 spacing: 6
+                                                 topPadding: 6
+diff --git a/widgets/ClockWidget.qml b/widgets/ClockWidget.qml
+index b9b5363..b5fb6f9 100755
+--- a/widgets/ClockWidget.qml
++++ b/widgets/ClockWidget.qml
+@@ -10,20 +10,26 @@ WidgetCard {
+ 
+     readonly property var d: WidgetData.now
+ 
++    // Options: the schema lives in WidgetConfig.builtinCatalog (the "Clock" entry, `settings: [...]`); a drop-in widget puts
++    // the same array in its widget.json. The slot replaces this object with the live values (defaults + the user's edits).
++    // The values below are only what shows for the instant before that happens: keep them equal to the schema defaults.
++    property var cfg: ({ hour24: true, showSeconds: true, showDate: true, dateFormat: "dddd, d MMMM yyyy",
++                         timeColor: "#E6D5B8", secondsColor: "#D4AF37", font: "monospace" })
++
+     Column {
+         anchors.centerIn: parent
+         spacing: 4 * w.ui
+ 
+         Item {
+             anchors.horizontalCenter: parent.horizontalCenter
+-            width: hm.width + secs.width + 8 * w.ui
++            width: hm.width + (secs.visible ? secs.width + 8 * w.ui : 0)
+             height: hm.height
+ 
+             Text {
+                 id: hm
+-                text: Qt.formatTime(w.d, "HH:mm")
+-                color: w.cCream
+-                font.family: "monospace"
++                text: Qt.formatTime(w.d, w.cfg.hour24 ? "HH:mm" : "h:mm AP")
++                color: w.cfg.timeColor
++                font.family: w.cfg.font
+                 font.bold: true
+                 font.pixelSize: Math.max(10, Math.round(62 * w.ui))
+             }
+@@ -32,18 +38,20 @@ WidgetCard {
+                 anchors.left: hm.right
+                 anchors.leftMargin: 8 * w.ui
+                 anchors.baseline: hm.baseline
++                visible: w.cfg.showSeconds
+                 text: Qt.formatTime(w.d, "ss")
+-                color: w.cGold
+-                font.family: "monospace"
++                color: w.cfg.secondsColor
++                font.family: w.cfg.font
+                 font.pixelSize: Math.max(8, Math.round(24 * w.ui))
+             }
+         }
+ 
+         Text {
+             anchors.horizontalCenter: parent.horizontalCenter
+-            text: Qt.formatDate(w.d, "dddd, d MMMM yyyy").toUpperCase()
++            visible: w.cfg.showDate
++            text: Qt.formatDate(w.d, w.cfg.dateFormat).toUpperCase()
+             color: w.cDim
+-            font.family: "monospace"
++            font.family: w.cfg.font
+             font.pixelSize: Math.max(7, Math.round(12 * w.ui))
+             font.letterSpacing: 1.5 * w.ui
+         }
+diff --git a/widgets/WidgetSlot.qml b/widgets/WidgetSlot.qml
+index 4b7eb39..3fe5561 100755
+--- a/widgets/WidgetSlot.qml
++++ b/widgets/WidgetSlot.qml
+@@ -152,11 +152,18 @@ Item {
+         }
+     }
+ 
++    // widget options (WidgetConfig.cfg) -> the widget's `cfg` property, live as the panel edits them
++    function pushCfg() {
++        if (loader.item && loader.item.cfg !== undefined && slot.def && slot.def.cfg) loader.item.cfg = slot.def.cfg;
++    }
++    onDefChanged: pushCfg()
++
+     Loader {
+         id: loader
+         source: slot.def ? Qt.resolvedUrl(slot.def.kind === "noctalia" ? "NoctaliaPlugin.qml" : slot.def.source) : ""
+         onLoaded: {
+             item.rig = slot.rig;
++            slot.pushCfg();
+             if (slot.def.title !== undefined && item.title !== undefined) item.title = slot.def.title;
+             if (slot.def.kind === "noctalia") {
+                 item.pluginId = slot.def.id;

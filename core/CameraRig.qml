@@ -29,6 +29,20 @@ Item {
     signal frameUpdated()        // end of every frame: the orbiting widgets reposition on this
     property real lastDt: 0.016
     property bool active: NoctaliaBridge.desktopVisible   // stage 5: set false when fullscreen-occluded to stop all per-frame work
+    // --- idle frame-rate cap (optimisation) ---
+    // While nothing is moving (no keys, no drag, camera settled, no scope) the scene only needs to redraw at
+    // fpsIdle. Skipped frames change nothing, so Qt Quick renders nothing and the GPU sits idle.
+    // Any input or camera motion runs at full display rate. fpsIdle: 0 = off (always full rate).
+    property real fpsIdle: 30
+    property real _acc: 0.0
+    function _heldAny() { for (const k in actDown) if (actDown[k] === true) return true; return false; }
+    function _busy() {
+        return isInteracting || mouseArea.pressed || _heldAny() || SignalscopeData.equipped
+            || Math.abs(velX) + Math.abs(velY) + Math.abs(velZ) > 0.01
+            || Math.abs(targetYaw - camYaw) > 0.0005 || Math.abs(targetPitch - camPitch) > 0.0005
+            || Math.abs(targetLockDist - lockDist) > 0.5
+            || timeScale > 4.0;
+    }
     readonly property string activeFocusId: lockedPlanetId !== "" ? lockedPlanetId : targetedPlanetId
 
     // last-painted state for the background canvas (it only repaints when something it shows changed)
@@ -608,7 +622,12 @@ Item {
     FrameAnimation {
         running: root.active
         onTriggered: {
-            let dt = Math.min(frameTime, 0.05);
+            if (root.fpsIdle > 0) {
+                root._acc += frameTime;
+                if (root._acc < 1.0 / root.fpsIdle - 0.002 && !root._busy()) return;
+            }
+            let dt = Math.min(root.fpsIdle > 0 ? root._acc : frameTime, 0.05);
+            root._acc = 0.0;
 
             if (!(root.isInteracting && root.loopTime >= 1288.0)) {
                 root.loopTime += dt * root.timeScale;

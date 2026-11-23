@@ -35,8 +35,17 @@ QtObject {
     // Every widget file that can be placed. `source` is relative to widgets/ (same as WidgetLayer defs).
     // designW = the file's width in px at ui = 1 (used to keep the on-screen size sensible when a slot's widget type is swapped).
     // title   = card title override for widgets that take one (blank = the widget's own).
-    readonly property var catalog: [
-        { source: "ClockWidget.qml",             name: "Clock",                 group: "Outer Wilds",    designW: 300 },
+    readonly property var builtinCatalog: [
+        { source: "ClockWidget.qml",             name: "Clock",                 group: "Outer Wilds",    designW: 300,
+          settings: [
+              { key: "hour24",       type: "toggle", label: "24-hour clock",  default: true },
+              { key: "showSeconds",  type: "toggle", label: "Show seconds",   default: true },
+              { key: "showDate",     type: "toggle", label: "Show date",      default: true },
+              { key: "dateFormat",   type: "text",   label: "Date format",    default: "dddd, d MMMM yyyy" },
+              { key: "timeColor",    type: "color",  label: "Time colour",    default: "#E6D5B8" },
+              { key: "secondsColor", type: "color",  label: "Seconds colour", default: "#D4AF37" },
+              { key: "font",         type: "font",   label: "Font",           default: "monospace" }
+          ] },
         { source: "LoopWidget.qml",              name: "Loop timer",            group: "Outer Wilds",    designW: 276 },
         { source: "UptimeWidget.qml",            name: "Uptime",                group: "Outer Wilds",    designW: 236 },
         { source: "DateWorldWidget.qml",         name: "Date / world clocks",   group: "Outer Wilds",    designW: 276 },
@@ -96,6 +105,12 @@ QtObject {
         { source: "serp/AnserinBubbleCard.qml", name: "Processes (small)", group: "Other", designW: 240, title: "PROCESSES" }
     ]
 
+    // Drop-in widgets: every widgets/user/<name>/widget.json found by WidgetConfigStore (see WIDGETS.md).
+    // Same entry shape as builtinCatalog, plus `default` (size / orbit / show) and `settings` (the schema the panel draws).
+    property var userCatalog: []
+    property var catalog: builtinCatalog.concat(userCatalog)
+    function setUserCatalog(list) { userCatalog = list; _bump(false); }
+
     // ---------------- state ----------------
     property var defaults: []        // registered by WidgetLayer (its baseDefs)
     property var extras: []          // widgets added from the panel (complete defs, ids "x1", "x2", ...)
@@ -152,7 +167,20 @@ QtObject {
 
     // ---------------- merge ----------------
     // base def + this id's overrides -> the def the slot actually uses (a fresh object each call).
+    // the widget's option values: schema defaults, then this id's saved overrides (a widget reads them as `cfg.key`)
+    function _cfgFor(source, ov) {
+        const c = catalogEntry(source), cfg = {};
+        const sch = c && Array.isArray(c.settings) ? c.settings : [];
+        for (let i = 0; i < sch.length; i++) cfg[sch[i].key] = sch[i].default;
+        if (ov && ov.settings) for (const k in ov.settings) cfg[k] = ov.settings[k];
+        return cfg;
+    }
     function _resolveOne(base, ov, isExtra) {
+        const d = _resolveCore(base, ov, isExtra);
+        d.cfg = _cfgFor(d.source, ov);
+        return d;
+    }
+    function _resolveCore(base, ov, isExtra) {
         const d = _clone(base);
         d.baseHost = base.host;
         d.baseSource = base.source;
@@ -257,6 +285,12 @@ QtObject {
     function setField(id, field, value) {
         const base = _baseFor(id);
         if (!base) return;
+        // the only things refused are the ones that break the scene: NaN/Infinity, a size <= 0, a negative orbit radius
+        if (typeof value === "number") {
+            if (!isFinite(value)) return;
+            if (field === "size" && !(value > 0)) return;
+            if (field === "k" && value < 0) value = 0;
+        }
         const baseVal = { host: base.host, enabled: true, removed: false, size: 1, speed: base.orbit.speed, k: base.orbit.k, tilt: base.orbit.tilt,
                           node: base.orbit.node || 0, show: base.show, source: base.source }[field];
         const o = _clone(overrides);
@@ -267,7 +301,25 @@ QtObject {
         _bump(true);
     }
 
-    function setGlobalSpeed(v) { globalSpeed = v; _bump(true); }
+    function setGlobalSpeed(v) { if (!isFinite(v) || v < 0) return; globalSpeed = v; _bump(true); }
+
+    // one widget option (schema key) -> saved under overrides[id].settings; a value equal to the default is dropped
+    function setSetting(id, key, value) {
+        const base = _baseFor(id);
+        if (!base) return;
+        const src = (overrides[id] && overrides[id].source !== undefined) ? overrides[id].source : base.source;
+        const c = catalogEntry(src);
+        let def;
+        if (c && Array.isArray(c.settings)) for (let i = 0; i < c.settings.length; i++) if (c.settings[i].key === key) def = c.settings[i].default;
+        const o = _clone(overrides);
+        if (!o[id]) o[id] = {};
+        const st = o[id].settings ? o[id].settings : {};
+        if (JSON.stringify(value) === JSON.stringify(def)) delete st[key]; else st[key] = value;
+        if (Object.keys(st).length === 0) delete o[id].settings; else o[id].settings = st;
+        if (Object.keys(o[id]).length === 0) delete o[id];
+        overrides = o;
+        _bump(true);
+    }
 
     function resetWidget(id) {
         if (!overrides[id]) return;
@@ -301,6 +353,12 @@ QtObject {
             orbit: { k: 2.0, add: 40, tilt: Math.sin(seed * 1.7) * 0.9, node: seed % 3.0, phase: seed, speed: 0.2 }
         };
         if (c && c.title !== undefined) def.title = c.title;
+        if (c && c.default && typeof c.default === "object") {      // a drop-in widget's own defaults (host is always the one asked for)
+            const m = c.default;
+            for (const k of ["show", "worldW", "worldWk", "minUi", "maxUi"]) if (m[k] !== undefined) def[k] = m[k];
+            if (m.worldW !== undefined && m.worldWk === undefined) delete def.worldWk;
+            if (m.orbit) for (const k in m.orbit) def.orbit[k] = m.orbit[k];
+        }
         const e = extras.slice();
         e.push(def);
         extras = e;

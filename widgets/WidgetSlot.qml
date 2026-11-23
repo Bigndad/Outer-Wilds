@@ -152,11 +152,18 @@ Item {
         }
     }
 
+    // widget options (WidgetConfig.cfg) -> the widget's `cfg` property, live as the panel edits them
+    function pushCfg() {
+        if (loader.item && loader.item.cfg !== undefined && slot.def && slot.def.cfg) loader.item.cfg = slot.def.cfg;
+    }
+    onDefChanged: pushCfg()
+
     Loader {
         id: loader
         source: slot.def ? Qt.resolvedUrl(slot.def.kind === "noctalia" ? "NoctaliaPlugin.qml" : slot.def.source) : ""
         onLoaded: {
             item.rig = slot.rig;
+            slot.pushCfg();
             if (slot.def.title !== undefined && item.title !== undefined) item.title = slot.def.title;
             if (slot.def.kind === "noctalia") {
                 item.pluginId = slot.def.id;

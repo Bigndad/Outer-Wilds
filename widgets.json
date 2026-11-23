@@ -112,45 +112,21 @@
     },
     "x1": {
       "host": "brittle_hollow"
+    },
+    "x15": {
+      "size": 2
+    },
+    "x7": {
+      "size": 3
+    },
+    "x18": {
+      "size": 0.65
+    },
+    "x22": {
+      "enabled": false
     }
   },
   "extras": [
-    {
-      "id": "x7",
-      "host": "attlerock",
-      "source": "serp/AnserinNetworkCard.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": 0.7125066943908296,
-        "node": 1.2333703856408285,
-        "phase": 4.2333703856408285,
-        "speed": 0.2
-      },
-      "title": "NETWORK"
-    },
-    {
-      "id": "x8",
-      "host": "attlerock",
-      "source": "serp/AnserinBubbleCard.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": 0.5046454884249604,
-        "node": 0.35014807846124185,
-        "phase": 0.35014807846124185,
-        "speed": 0.2
-      },
-      "title": "PROCESSES"
-    },
     {
       "id": "x9",
       "host": "timber_hearth",
@@ -319,6 +295,231 @@
         "tilt": 0.02231780029478176,
         "node": 1.8334073856408288,
         "phase": 1.8334073856408288,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x13",
+      "host": "timber_hearth",
+      "source": "serp/DarkBrambleDisc.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.6986526760395126,
+        "node": 0.0667777712816573,
+        "phase": 6.066777771281657,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x15",
+      "host": "timber_hearth",
+      "source": "serp/EmberTwinMusic.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8982707403792808,
+        "node": 1.5835184641020703,
+        "phase": 4.58351846410207,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x7",
+      "host": "attlerock",
+      "source": "serp/EmberTwinLyrics.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.7125066943908296,
+        "node": 1.2333703856408285,
+        "phase": 4.2333703856408285,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x8",
+      "host": "hollows_lantern",
+      "source": "serp/AnserinNetworkCard.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.5046454884249604,
+        "node": 0.35014807846124185,
+        "phase": 0.35014807846124185,
+        "speed": 0.2
+      },
+      "title": "NETWORK"
+    },
+    {
+      "id": "x14",
+      "host": "giants_deep",
+      "source": "WorkspacesWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.4860110033598845,
+        "node": 2.1835554641020707,
+        "phase": 2.1835554641020707,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x16",
+      "host": "giants_deep",
+      "source": "serp/GiantsDeepWeather.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8357003711775983,
+        "node": 0.7002961569224837,
+        "phase": 0.7002961569224837,
+        "speed": 0.2
+      },
+      "title": "WEATHER"
+    },
+    {
+      "id": "x17",
+      "host": "quantum_moon",
+      "source": "serp/AnserinUser.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.7634596253004738,
+        "node": 0.10025915692248333,
+        "phase": 3.1002591569224833,
+        "speed": 0.2
+      },
+      "title": "USER"
+    },
+    {
+      "id": "x18",
+      "host": "sun",
+      "source": "LoopWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.06689850634643088,
+        "node": 2.500222156922483,
+        "phase": 5.500222156922483,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x19",
+      "host": "sun",
+      "source": "UptimeWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.3444099565973509,
+        "node": 1.6169998497428963,
+        "phase": 1.6169998497428963,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x20",
+      "host": "sun",
+      "source": "DateWorldWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.4670776150452612,
+        "node": 1.016962849742896,
+        "phase": 4.016962849742896,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x21",
+      "host": "sun_station",
+      "source": "ScreentimeCard.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.20286468258605966,
+        "node": 0.13374054256330936,
+        "phase": 0.13374054256330936,
+        "speed": 0.2
+      },
+      "title": "SCREEN TIME"
+    },
+    {
+      "id": "x22",
+      "host": "sun_station",
+      "source": "UptimeWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.827159189389349,
+        "node": 2.533703542563309,
+        "phase": 2.533703542563309,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x23",
+      "host": "sun_station",
+      "source": "ClockWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.7750428990790177,
+        "node": 1.9336665425633086,
+        "phase": 4.933666542563309,
         "speed": 0.2
       }
     }

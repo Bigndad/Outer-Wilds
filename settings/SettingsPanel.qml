@@ -344,7 +344,15 @@ Rectangle {
         property real step: 0.01
         property string text: ""
         property bool bipolar: false
+        property real typedScale: 1.0      // shown number = value * typedScale (degrees for tilt / turn)
         signal moved(real v)
+        // the number at the right is a text box: type any value, nothing clamps it (only the drag is limited to from..to)
+        function commitTyped(str) {
+            const m = String(str).match(/-?\d+(?:\.\d+)?|-?\.\d+/);
+            if (!m) return;
+            const v = parseFloat(m[0]) / s.typedScale;
+            if (isFinite(v)) s.moved(v);
+        }
         readonly property real frac: to > from ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
         implicitHeight: 26
 
@@ -368,16 +376,20 @@ Rectangle {
                 color: ma.pressed ? root.cCream : root.cGold
             }
         }
-        Text {
+        TextInput {
+            id: valBox
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             width: 104
-            horizontalAlignment: Text.AlignRight
+            horizontalAlignment: TextInput.AlignRight
             text: s.text
-            color: root.cCream
+            color: activeFocus ? root.cGold : root.cCream
             font.family: root.mono
             font.pixelSize: 11
-            elide: Text.ElideRight
+            selectByMouse: true
+            clip: true
+            onAccepted: { s.commitTyped(text); focus = false; }
+            onActiveFocusChanged: { if (activeFocus) selectAll(); else text = Qt.binding(() => s.text); }
         }
         MouseArea {
             id: ma
@@ -392,6 +404,42 @@ Rectangle {
             }
             onPressed: (m) => setFromX(m.x)
             onPositionChanged: (m) => { if (pressed) setFromX(m.x); }
+        }
+    }
+
+    component OWTextField: Rectangle {
+        id: tf
+        property string value: ""
+        property bool showSwatch: false
+        signal edited(string v)
+        implicitHeight: 26
+        radius: 3
+        color: "#0D0F14"
+        border.width: 1
+        border.color: tfIn.activeFocus ? root.cGold : root.cLine
+        Rectangle {
+            visible: tf.showSwatch
+            x: 6
+            anchors.verticalCenter: parent.verticalCenter
+            width: 14; height: 14; radius: 2
+            color: /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(tf.value) ? tf.value : "transparent"
+            border.width: 1
+            border.color: root.cLine
+        }
+        TextInput {
+            id: tfIn
+            anchors.fill: parent
+            anchors.leftMargin: tf.showSwatch ? 28 : 10
+            anchors.rightMargin: 8
+            verticalAlignment: TextInput.AlignVCenter
+            clip: true
+            selectByMouse: true
+            text: tf.value
+            color: root.cCream
+            font.family: root.mono
+            font.pixelSize: 11
+            onAccepted: { tf.edited(text); focus = false; }
+            onActiveFocusChanged: { if (!activeFocus) { if (text !== tf.value) tf.edited(text); text = Qt.binding(() => tf.value); } }
         }
     }
 
@@ -550,7 +598,7 @@ Rectangle {
             OWSlider {
                 y: 50
                 width: parent.width
-                from: 0; to: 3; step: 0.05
+                from: 0; to: 10; step: 0.05
                 value: WidgetConfig.globalSpeed
                 text: WidgetConfig.globalSpeed.toFixed(2) + "×"
                 onMoved: (v) => WidgetConfig.setGlobalSpeed(v)
@@ -799,7 +847,7 @@ Rectangle {
                                             FieldLabel { text: "SIZE"; topPadding: 4 }
                                             OWSlider {
                                                 width: parent.width
-                                                from: 0.3; to: 3.0; step: 0.05
+                                                from: 0.1; to: 5.0; step: 0.05
                                                 value: row.d ? row.d.size : 1
                                                 text: (row.d ? row.d.size : 1).toFixed(2) + "×"
                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "size", v)
@@ -808,7 +856,7 @@ Rectangle {
                                             FieldLabel { text: "ORBIT SPEED  (− = other way, 0 = parked)" }
                                             OWSlider {
                                                 width: parent.width
-                                                from: -0.8; to: 0.8; step: 0.01
+                                                from: -2.0; to: 2.0; step: 0.01
                                                 bipolar: true
                                                 value: row.d ? row.d.orbit.speed : 0
                                                 text: row.d ? root.fmtSpeed(row.d.orbit.speed) : ""
@@ -818,7 +866,7 @@ Rectangle {
                                             FieldLabel { text: "ORBIT DISTANCE" }
                                             OWSlider {
                                                 width: parent.width
-                                                from: 1.1; to: 4.5; step: 0.05
+                                                from: 0.5; to: 10.0; step: 0.05
                                                 value: row.d ? row.d.orbit.k : 2
                                                 text: (row.d ? row.d.orbit.k : 2).toFixed(2) + " radii"
                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "k", v)
@@ -834,7 +882,8 @@ Rectangle {
                                             FieldLabel { text: "ORBIT AXIS"; topPadding: 4 }
                                             OWSlider {
                                                 width: parent.width
-                                                from: -1.5; to: 1.5; step: 0.05
+                                                from: -3.14; to: 3.14; step: 0.05
+                                                typedScale: 57.2958
                                                 value: row.d ? row.d.orbit.tilt : 0
                                                 text: "tilt " + Math.round((row.d ? row.d.orbit.tilt : 0) * 57.2958) + "°"
                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "tilt", v)
@@ -842,6 +891,7 @@ Rectangle {
                                             OWSlider {
                                                 width: parent.width
                                                 from: 0; to: 6.28; step: 0.05
+                                                typedScale: 57.2958
                                                 value: row.d ? (row.d.orbit.node || 0) : 0
                                                 text: "turn " + Math.round((row.d ? (row.d.orbit.node || 0) : 0) * 57.2958) + "°"
                                                 onMoved: (v) => WidgetConfig.setField(row.wid, "node", v)
@@ -862,6 +912,78 @@ Rectangle {
                                                     color: root.keyMsg !== "" ? root.cDanger : root.cDim
                                                     font.family: root.mono
                                                     font.pixelSize: 10
+                                                }
+                                            }
+
+                                            Column {
+                                                id: cfgCol
+                                                width: parent.width
+                                                spacing: 6
+                                                readonly property var schema: {
+                                                    const c = row.d ? WidgetConfig.catalogEntry(row.d.source) : null;
+                                                    return c && Array.isArray(c.settings) ? c.settings : [];
+                                                }
+                                                visible: schema.length > 0
+
+                                                FieldLabel { text: "WIDGET OPTIONS"; topPadding: 4 }
+
+                                                Repeater {
+                                                    model: cfgCol.schema
+                                                    delegate: Column {
+                                                        id: opt
+                                                        required property var modelData
+                                                        readonly property var s: modelData
+                                                        readonly property var cur: (row.d && row.d.cfg && row.d.cfg[s.key] !== undefined) ? row.d.cfg[s.key] : s.default
+                                                        readonly property string lbl: String(s.label || s.key)
+                                                        width: cfgCol.width
+                                                        spacing: 4
+
+                                                        // toggle: switch + label on one line; every other type: label, then the control
+                                                        Row {
+                                                            visible: opt.s.type === "toggle"
+                                                            spacing: 8
+                                                            height: 18
+                                                            OWSwitch { on: opt.cur === true; onToggled: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v) }
+                                                            FieldLabel { anchors.verticalCenter: parent.verticalCenter; text: opt.lbl.toUpperCase() }
+                                                        }
+                                                        FieldLabel { visible: opt.s.type !== "toggle"; text: opt.lbl.toUpperCase() }
+
+                                                        OWSlider {
+                                                            visible: opt.s.type === "number"
+                                                            width: opt.width
+                                                            from: opt.s.min !== undefined ? opt.s.min : 0
+                                                            to: opt.s.max !== undefined ? opt.s.max : 100
+                                                            step: opt.s.step !== undefined ? opt.s.step : 1
+                                                            value: Number(opt.cur)
+                                                            text: String(Math.round(Number(opt.cur) * 1000) / 1000) + (opt.s.unit ? " " + opt.s.unit : "")
+                                                            onMoved: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v)
+                                                        }
+
+                                                        Flow {
+                                                            visible: opt.s.type === "choice"
+                                                            width: opt.width
+                                                            spacing: 5
+                                                            Repeater {
+                                                                model: opt.s.type === "choice" && Array.isArray(opt.s.choices) ? opt.s.choices : []
+                                                                delegate: OWButton {
+                                                                    required property var modelData
+                                                                    readonly property var val: (typeof modelData === "object") ? modelData.value : modelData
+                                                                    label: String((typeof modelData === "object") ? (modelData.label !== undefined ? modelData.label : modelData.value) : modelData)
+                                                                    pad: 7
+                                                                    active: opt.cur === val
+                                                                    onClicked: WidgetConfig.setSetting(row.wid, opt.s.key, val)
+                                                                }
+                                                            }
+                                                        }
+
+                                                        OWTextField {
+                                                            visible: opt.s.type === "text" || opt.s.type === "font" || opt.s.type === "file" || opt.s.type === "color"
+                                                            width: opt.width
+                                                            showSwatch: opt.s.type === "color"
+                                                            value: String(opt.cur)
+                                                            onEdited: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v)
+                                                        }
+                                                    }
                                                 }
                                             }
 
