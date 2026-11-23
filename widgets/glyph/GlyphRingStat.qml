@@ -13,7 +13,7 @@ GlyphCard {
     property string value: "0"
     property string label: ""
     property real warnAt: 0.85
-    readonly property color tone: f >= warnAt ? GlyphTheme.red : GlyphTheme.fg
+    property color tone: f >= warnAt ? GlyphTheme.red : GlyphTheme.fg
 
     GlyphRing {
         anchors.fill: parent

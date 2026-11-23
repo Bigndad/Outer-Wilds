@@ -121,6 +121,12 @@
     },
     "x18": {
       "size": 0.65
+    },
+    "x20": {
+      "enabled": false
+    },
+    "x24": {
+      "size": 0.7000000000000001
     }
   },
   "extras": [
@@ -500,6 +506,40 @@
         "tilt": 0.7750428990790177,
         "node": 1.9336665425633086,
         "phase": 4.933666542563309,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x22",
+      "host": "sun",
+      "source": "glyph/GlyphFocus.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.827159189389349,
+        "node": 2.533703542563309,
+        "phase": 2.533703542563309,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x24",
+      "host": "sun",
+      "source": "glyph/GlyphWeather.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8792866508796494,
+        "node": 1.050444235383729,
+        "phase": 1.050444235383729,
         "speed": 0.2
       }
     }

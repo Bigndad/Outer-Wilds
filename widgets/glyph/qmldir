@@ -13,3 +13,14 @@ GlyphGpu 1.0 GlyphGpu.qml
 GlyphSystem 1.0 GlyphSystem.qml
 GlyphCal 1.0 GlyphCal.qml
 GlyphFocus 1.0 GlyphFocus.qml
+GlyphBitmap 1.0 GlyphBitmap.qml
+singleton GlyphWeatherData 1.0 GlyphWeatherData.qml
+singleton GlyphAudioData 1.0 GlyphAudioData.qml
+GlyphDate 1.0 GlyphDate.qml
+GlyphDisk 1.0 GlyphDisk.qml
+GlyphBattery 1.0 GlyphBattery.qml
+GlyphVolume 1.0 GlyphVolume.qml
+GlyphWeather 1.0 GlyphWeather.qml
+GlyphHello 1.0 GlyphHello.qml
+GlyphPlayer 1.0 GlyphPlayer.qml
+GlyphCat 1.0 GlyphCat.qml

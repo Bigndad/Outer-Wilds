@@ -11,9 +11,7 @@ Repo root = the config folder `~/.config/quickshell/outerwilds` (the repo *is* t
 | `widgets.json` | your saved widget/key/UI settings (only differences from the defaults) |
 | `WIDGETS.md` | how to write a widget (AI-friendly) |
 | `bin/ow` | helper command: `start stop restart status log doctor rescan new-widget` |
-| `reorganize.sh`, `install_*.sh`, `NoctaliaBridge.qml`, `applauncher.qml` | one-off installers/history from the early setup; safe to ignore |
-| `ow_*.patch` | history of the git patches applied so far |
-| `*.bak`, `*.pre-*`, `.hypr-compat-backup-*` | old backups; safe to delete once things work (git history has the real versions) |
+| `_archive/` | everything moved out by `tidy.sh`: old backups (`*.bak`, `*.pre-*`, `.hypr-compat-backup-*`), applied `*.patch` history, the unused root `NoctaliaBridge.qml` / `applauncher.qml`, unused shaders and faces, same paths as before. Safe to delete (git history has them) |
 | `Outer Wilds Desktop - Handoff.md` | the first handoff note (1 Nov 2026); **outdated**, use this wiki instead |
 
 ## The registry rule (the one that bites)

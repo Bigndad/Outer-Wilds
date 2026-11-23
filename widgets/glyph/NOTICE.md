@@ -17,3 +17,18 @@ Technology Ltd; this is a fan project.
 | GlyphFocus | focus timer on a draining ring, red while running | local timer |
 
 Building blocks: GlyphCard (slot contract), GlyphDots (5x7 dot font: 0-9 : . % - degree), GlyphRing, GlyphSeg, GlyphLabel, GlyphTheme.
+
+Added later (same rules: written fresh, no shaders, no assets copied):
+
+| file | what | data |
+|---|---|---|
+| GlyphDate | month, day number in dots, weekday strip | WidgetData.now |
+| GlyphWeather | dot icon, temperature, condition, low/high | GlyphWeatherData (Open-Meteo via curl, 15 min) |
+| GlyphDisk | LED ring, first mount | Sensors.disks |
+| GlyphBattery | LED ring, "--" on a desktop | UPower |
+| GlyphVolume | LED ring, wheel = volume, click = mute | GlyphAudioData (wpctl) |
+| GlyphPlayer | spinning dot disc, title / artist, prev / play / next (no cover art) | SignalscopeData channels |
+| GlyphHello | greeting by the hour, unread count | WidgetData.now, RumorData |
+| GlyphCat | dot cat that blinks and wags (drawn here, not glyph-rice's gif) | none |
+
+Building block: GlyphBitmap (dot bitmap from strings). Not ported: Buds (earbud protocol), and the full-screen panels (Deck, Quick, Clip, Charms, Walls, VPN, Shot, Power, Lock).
