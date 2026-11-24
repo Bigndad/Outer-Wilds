@@ -1,11 +1,26 @@
 #!/bin/sh
 # ow: control the Outer Wilds desktop.  ow start | stop | restart | status | log | doctor | rescan | new-widget <name>
 CFG=outerwilds
+PIDF="${XDG_RUNTIME_DIR:-/tmp}/ow-${CFG}-supervise.pid"
+supervised() { [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF" 2>/dev/null)" 2>/dev/null; }
+stop_supervisor() { if supervised; then kill "$(cat "$PIDF")" 2>/dev/null; fi; rm -f "$PIDF"; }
 case "$1" in
   start)   pgrep -f "qs.*-c $CFG" >/dev/null && { echo "already running"; exit 0; }
            setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo started ;;
-  stop)    qs kill -c "$CFG" ;;
-  restart) qs kill -c "$CFG" 2>/dev/null; sleep 1; setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo restarted ;;
+  supervise)   # autostart this one: starts the shell and restarts it if it crashes (gives up after 5 quick crashes in a row)
+           supervised && { echo "already supervising"; exit 0; }
+           setsid -f sh -c 'echo $$ > "$1"; fails=0
+             while :; do
+               t=$(date +%s); qs -c "$2" >/dev/null 2>&1; rc=$?
+               [ "$rc" -eq 0 ] && break
+               if [ $(( $(date +%s) - t )) -lt 10 ]; then fails=$((fails + 1)); else fails=0; fi
+               [ "$fails" -ge 5 ] && break
+               sleep 2
+             done; rm -f "$1"' sh "$PIDF" "$CFG" && echo supervising ;;
+  stop)    stop_supervisor; qs kill -c "$CFG" ;;
+  restart) if supervised; then S=1; fi; stop_supervisor; qs kill -c "$CFG" 2>/dev/null; sleep 1
+           if [ -n "$S" ]; then "$0" supervise; else setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo restarted; fi ;;
+  perf)    shift; case "$1" in set|cycle|diag|status) qs -c "$CFG" ipc call perf "$@" ;; *) echo "usage: ow perf set quality|balanced|performance | cycle | diag | status"; exit 1 ;; esac ;;
   status)  qs -c "$CFG" ipc call system status ;;
   log)     qs -c "$CFG" log ;;
   rescan)  qs -c "$CFG" ipc call widgets rescan ;;

@@ -13,6 +13,7 @@ Item {
     signal presetImportRequested()
 
     readonly property bool inspectorOpen: root.tab === "widgets" && root.expandedId !== "" && !root.picking && root.inspEntry !== null
+    readonly property bool inspectorShown: inspectorOpen || inspectorPanel.slide > 0.01
     readonly property var inspEntry: root.expandedId !== "" ? WidgetConfig.entry(root.expandedId) : null
     readonly property alias mainPanelItem: mainPanel
     property string inspectorTab: "orbit"    // orbit | card | options
@@ -67,6 +68,9 @@ Item {
     property string pickTarget: ""
     property string pickQuery: ""
     property bool confirmReset: false
+    property string confirmPlanet: ""       // BACKUP & RESET PLANET: the planet waiting for its second click
+    property string pickGroup: ""           // add-widget list: only this catalog group ("" = all)
+    property var pickGroups: []
     property bool confirmClean: false
     property bool confirmAll: false
     property string lastHost: "timber_hearth"
@@ -175,10 +179,15 @@ Item {
     onQueryChanged: buildStructure()
     onCollapsedChanged: buildStructure()
 
+    Timer {
+        id: structTimer
+        interval: 80
+        onTriggered: { root.buildStructure(); if (root.picking) root.buildPick(); }
+    }
     Connections {
         target: WidgetConfig
-        function onRevisionChanged() { root.buildStructure(); root.buildPick(); }
-        function onPanelOpenChanged() { if (!WidgetConfig.panelOpen) root.capturing = ""; }
+        function onRevisionChanged() { structTimer.restart(); }
+        function onPanelOpenChanged() { if (!WidgetConfig.panelOpen) { root.capturing = ""; root.picking = false; } }
     }
     Component.onCompleted: { buildStructure(); buildPick(); }
 
@@ -201,30 +210,37 @@ Item {
     function buildPick() {
         const q = pickQuery.toLowerCase();
         const out = [];
+        const placesMap = {};
         if (pickMode === "add") {
-            const rem = WidgetConfig.removedEntries();
-            const l = [];
-            for (let i = 0; i < rem.length; i++) {
-                const name = WidgetConfig.widgetName(rem[i]);
-                if (q === "" || name.toLowerCase().indexOf(q) >= 0 || WidgetConfig.planetName(rem[i].baseHost).toLowerCase().indexOf(q) >= 0)
-                    l.push({ kind: "restore", id: rem[i].id, name: name, planet: rem[i].baseHost });
-            }
-            if (l.length > 0) {
-                out.push({ kind: "group", text: "REMOVED FROM A PLANET  ·  CLICK TO PUT BACK" });
-                for (let i = 0; i < l.length; i++) out.push(l[i]);
+            const allEnt = WidgetConfig.entries();
+            for (let k = 0; k < allEnt.length; k++) {
+                const src = allEnt[k].source;
+                if (!placesMap[src]) placesMap[src] = [];
+                placesMap[src].push({ id: allEnt[k].id, host: allEnt[k].host });
             }
         }
         const cat = WidgetConfig.catalog;
         let lastGroup = "";
         for (let i = 0; i < cat.length; i++) {
-            if (q !== "" && cat[i].name.toLowerCase().indexOf(q) < 0 && cat[i].group.toLowerCase().indexOf(q) < 0) continue;
+            if (pickGroup !== "" && cat[i].group !== pickGroup) continue;
+            const places = pickMode === "add" ? (placesMap[cat[i].source] || []) : [];
+            const where = [];
+            let canMove = false;
+            for (let k = 0; k < places.length; k++) {
+                const pn = WidgetConfig.planetName(places[k].host);
+                if (where.indexOf(pn) < 0) where.push(pn);
+                if (places[k].host !== lastHost) canMove = true;
+            }
+            if (q !== "" && cat[i].name.toLowerCase().indexOf(q) < 0 && cat[i].group.toLowerCase().indexOf(q) < 0
+                && where.join(" ").toLowerCase().indexOf(q) < 0) continue;
             if (cat[i].group !== lastGroup) { out.push({ kind: "group", text: cat[i].group.toUpperCase() }); lastGroup = cat[i].group; }
-            out.push({ kind: "item", source: cat[i].source, name: cat[i].name });
+            out.push({ kind: "item", source: cat[i].source, name: cat[i].name, where: where, canMove: canMove });
         }
         pickModel = out;
     }
     onPickQueryChanged: buildPick()
     onPickModeChanged: buildPick()
+    onPickGroupChanged: buildPick()
 
     property bool pickFromFocus: false
     function startPick(mode, target, host) {
@@ -236,6 +252,10 @@ Item {
             else if (WidgetConfig.focusPlanet !== "") { lastHost = WidgetConfig.focusPlanet; pickFromFocus = true; }
         }
         pickQuery = "";
+        pickGroup = "";
+        const gs = [], cat = WidgetConfig.catalog;
+        for (let i = 0; i < cat.length; i++) if (gs.indexOf(cat[i].group) < 0) gs.push(cat[i].group);
+        pickGroups = gs;
         buildPick();
         picking = true;
     }
@@ -249,6 +269,15 @@ Item {
         } else {
             WidgetConfig.setField(pickTarget, "source", source);
         }
+    }
+
+    // an existing widget of this file goes to the planet instead of a duplicate being made
+    function pickMove(source) {
+        picking = false;
+        const id = WidgetConfig.moveHere(source, lastHost);
+        if (id === "") return;
+        expandedId = id;
+        if (collapsed[lastHost] === true) toggleCollapse(lastHost);
     }
 
     function pickRestore(id) {
@@ -281,23 +310,41 @@ Item {
     }
 
     // ---------------- small controls ----------------
-    component OWBrackets: Item {
+    component OWBrackets: Canvas {
         id: br
         property color col: "#CCD4AF37"
         property real arm: 13
         property real thick: 2
+        property real cornerRadius: (parent && parent.radius !== undefined) ? parent.radius : 0
         anchors.fill: parent
         z: 30
-        Repeater {
-            model: [{ r: false, b: false }, { r: true, b: false }, { r: false, b: true }, { r: true, b: true }]
-            delegate: Item {
-                required property var modelData
-                width: br.arm; height: br.arm
-                x: modelData.r ? br.width - width : 0
-                y: modelData.b ? br.height - height : 0
-                Rectangle { width: parent.width; height: br.thick; y: parent.modelData.b ? parent.height - height : 0; color: br.col }
-                Rectangle { height: parent.height; width: br.thick; x: parent.modelData.r ? parent.width - width : 0; color: br.col }
-            }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        onCornerRadiusChanged: requestPaint()
+        onColChanged: requestPaint()
+        Component.onCompleted: requestPaint()
+        onPaint: {
+            const ctx = getContext("2d");
+            ctx.clearRect(0, 0, width, height);
+            if (width <= 2 || height <= 2) return;
+            const lw = br.thick, ins = lw * 0.5, w = width, h = height;
+            const r = Math.max(0, Math.min(br.cornerRadius - ins, w * 0.4, h * 0.4));
+            const a = Math.min(w * 0.44, h * 0.44, Math.max(ins + r + 5, ins + br.arm));
+            ctx.strokeStyle = br.col; ctx.lineWidth = lw; ctx.lineCap = "round"; ctx.lineJoin = "round";
+            ctx.beginPath();
+            ctx.moveTo(ins, a); ctx.lineTo(ins, ins + r);
+            if (r > 0.5) ctx.arcTo(ins, ins, ins + r, ins, r); else ctx.lineTo(ins, ins);
+            ctx.lineTo(a, ins);
+            ctx.moveTo(w - a, ins); ctx.lineTo(w - ins - r, ins);
+            if (r > 0.5) ctx.arcTo(w - ins, ins, w - ins, ins + r, r); else ctx.lineTo(w - ins, ins);
+            ctx.lineTo(w - ins, a);
+            ctx.moveTo(w - ins, h - a); ctx.lineTo(w - ins, h - ins - r);
+            if (r > 0.5) ctx.arcTo(w - ins, h - ins, w - ins - r, h - ins, r); else ctx.lineTo(w - ins, h - ins);
+            ctx.lineTo(w - a, h - ins);
+            ctx.moveTo(a, h - ins); ctx.lineTo(ins + r, h - ins);
+            if (r > 0.5) ctx.arcTo(ins, h - ins, ins, h - ins - r, r); else ctx.lineTo(ins, h - ins);
+            ctx.lineTo(ins, h - a);
+            ctx.stroke();
         }
     }
 
@@ -323,6 +370,36 @@ Item {
             y: ic.heading !== "" ? 28 : 10
             width: parent.width - 24
             spacing: 7
+        }
+    }
+
+    component OWWheel: WheelHandler {
+        id: wh
+        property var scrollTarget: null
+        property real targetY: 0
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+        target: null
+        property NumberAnimation anim: NumberAnimation {
+            target: wh.scrollTarget
+            property: "contentY"
+            duration: 95
+            easing.type: Easing.OutCubic
+        }
+        onWheel: (e) => {
+            e.accepted = true;
+            if (!wh.scrollTarget) return;
+            const maxY = Math.max(0, wh.scrollTarget.contentHeight - wh.scrollTarget.height);
+            if (maxY <= 0) return;
+            const sens = WidgetConfig.uiScrollSens || 1.0;
+            const step = (e.angleDelta.y !== 0 && Math.abs(e.pixelDelta.y) < 40)
+                ? (e.angleDelta.y / 120.0) * 220 * sens
+                : e.pixelDelta.y * 2.8 * sens;
+            const base = wh.anim.running ? wh.targetY : wh.scrollTarget.contentY;
+            wh.targetY = Math.max(0, Math.min(maxY, base - step));
+            wh.anim.stop();
+            wh.anim.from = wh.scrollTarget.contentY;
+            wh.anim.to = wh.targetY;
+            wh.anim.start();
         }
     }
 
@@ -485,6 +562,9 @@ Item {
         property string text: ""
         property bool bipolar: false
         property real typedScale: 1.0
+        property real _liveFrac: (isFinite(value) && to > from) ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
+        property real _pendingVal: value
+        property bool _hasPending: false
         signal moved(real v)
         function commitTyped(str) {
             const m = String(str).match(/-?\d+(?:\.\d+)?|-?\.\d+/);
@@ -492,8 +572,19 @@ Item {
             const v = parseFloat(m[0]) / s.typedScale;
             if (isFinite(v)) s.moved(v);
         }
-        readonly property real frac: to > from ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
+        readonly property real frac: ma.pressed ? _liveFrac : ((isFinite(value) && to > from) ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0)
         implicitHeight: 24
+
+        Timer {
+            id: emitTimer
+            interval: 50
+            onTriggered: {
+                if (s._hasPending) {
+                    s._hasPending = false;
+                    s.moved(s._pendingVal);
+                }
+            }
+        }
 
         Rectangle {
             id: track
@@ -509,6 +600,8 @@ Item {
                 height: parent.height
                 radius: 2
                 color: root.cGold
+                Behavior on x { enabled: !ma.pressed; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
+                Behavior on width { enabled: !ma.pressed; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
             }
             Rectangle {
                 width: 11; height: 11; radius: 3; rotation: 45
@@ -516,6 +609,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 color: ma.pressed ? root.cCream : root.cGold
                 scale: (ma.pressed || ma.containsMouse) ? 1.25 : 1.0
+                Behavior on x { enabled: !ma.pressed; NumberAnimation { duration: 90; easing.type: Easing.OutCubic } }
                 Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
                 Behavior on color { ColorAnimation { duration: 120 } }
             }
@@ -539,16 +633,27 @@ Item {
             id: ma
             x: -6; width: track.width + 12; height: parent.height
             hoverEnabled: true
+            preventStealing: true
             cursorShape: Qt.PointingHandCursor
-            function setFromX(mx) {
+            function setFromX(mx, immediate) {
                 const f = Math.max(0, Math.min(1, (mx - 6) / track.width));
+                s._liveFrac = f;
                 let v = s.from + f * (s.to - s.from);
                 v = Math.round(v / s.step) * s.step;
                 v = Math.max(s.from, Math.min(s.to, v));
-                if (Math.abs(v - s.value) > 1e-9) s.moved(v);
+                if (immediate) {
+                    emitTimer.stop();
+                    s._hasPending = false;
+                    if (Math.abs(v - s.value) > 1e-9) s.moved(v);
+                } else if (Math.abs(v - s._pendingVal) > 1e-9 || Math.abs(v - s.value) > 1e-9) {
+                    s._pendingVal = v;
+                    s._hasPending = true;
+                    if (!emitTimer.running) emitTimer.start();
+                }
             }
-            onPressed: (m) => setFromX(m.x)
-            onPositionChanged: (m) => { if (pressed) setFromX(m.x); }
+            onPressed: (m) => setFromX(m.x, true)
+            onPositionChanged: (m) => { if (pressed) setFromX(m.x, false); }
+            onReleased: (m) => setFromX(m.x, true)
         }
     }
 
@@ -680,16 +785,9 @@ Item {
             ListView {
                 id: ddList
                 anchors.fill: parent; anchors.margins: 4
-                model: dd.model; clip: true
+                model: dd.open ? dd.model : []; clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                WheelHandler {
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (e) => {
-                        e.accepted = true;
-                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                        ddList.contentY = Math.max(0, Math.min(Math.max(0, ddList.contentHeight - ddList.height), ddList.contentY - dy));
-                    }
-                }
+                OWWheel { scrollTarget: ddList }
                 delegate: Rectangle {
                     required property var modelData
                     readonly property var val: (typeof modelData === "object" && modelData !== null) ? modelData.value : modelData
@@ -798,16 +896,9 @@ Item {
             ListView {
                 id: fpList
                 x: 4; y: 36; width: parent.width - 8; height: Math.max(0, parent.height - 40)
-                model: fp.filteredFonts; clip: true
+                model: fp.open ? fp.filteredFonts : []; clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                WheelHandler {
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (e) => {
-                        e.accepted = true;
-                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                        fpList.contentY = Math.max(0, Math.min(Math.max(0, fpList.contentHeight - fpList.height), fpList.contentY - dy));
-                    }
-                }
+                OWWheel { scrollTarget: fpList }
                 delegate: Rectangle {
                     required property string modelData
                     readonly property bool cur: fp.value === modelData
@@ -1344,13 +1435,7 @@ Item {
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
 
-                WheelHandler {
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (e) => {
-                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                        flick.contentY = Math.max(0, Math.min(Math.max(0, flick.contentHeight - flick.height), flick.contentY - dy));
-                    }
-                }
+                OWWheel { }
 
                 Column {
                     id: listCol
@@ -1487,6 +1572,11 @@ Item {
                                             text: (row.modified ? "● " : "") + (row.open ? "◂" : "▸")
                                             color: row.modified ? root.cGold : root.cDim
                                             font.family: root.mono; font.pixelSize: 11
+                                            MouseArea {
+                                                anchors.fill: parent; anchors.margins: -8
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.toggleExpand(row.wid)
+                                            }
                                         }
                                     }
                                 }
@@ -1541,13 +1631,7 @@ Item {
                 contentWidth: width; contentHeight: keyCol.height + 12; clip: true
                 boundsBehavior: Flickable.StopAtBounds
 
-                WheelHandler {
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (e) => {
-                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                        keyFlick.contentY = Math.max(0, Math.min(Math.max(0, keyFlick.contentHeight - keyFlick.height), keyFlick.contentY - dy));
-                    }
-                }
+                OWWheel { scrollTarget: keyFlick }
 
                 Column {
                     id: keyCol
@@ -1681,13 +1765,7 @@ Item {
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
 
-                WheelHandler {
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (e) => {
-                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                        optFlick.contentY = Math.max(0, Math.min(Math.max(0, optFlick.contentHeight - optFlick.height), optFlick.contentY - dy));
-                    }
-                }
+                OWWheel { scrollTarget: optFlick }
 
                 Column {
                     id: optCol
@@ -1791,7 +1869,29 @@ Item {
 
                     // ---- 6. RENDERING & PERFORMANCE ----
                     OptAccordion {
-                        optKey: "render"; title: "Rendering & performance"; subtitle: "Bake resolution, idle FPS cap & distance shrink"
+                        optKey: "render"; title: "Rendering & performance"; subtitle: "Quality / Balanced / Performance presets, FPS caps, planet resolution"
+
+                        FieldHeader { label: "PERFORMANCE PRESET" }
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: ["quality", "balanced", "performance"]
+                                delegate: OWButton {
+                                    required property string modelData
+                                    label: modelData.toUpperCase(); pad: 10
+                                    active: WidgetConfig.perfMode === modelData
+                                    onClicked: WidgetConfig.setPerfMode(modelData)
+                                }
+                            }
+                        }
+                        Text {
+                            width: parent.width; wrapMode: Text.Wrap
+                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                            text: WidgetConfig.perfMode === "quality" ? "Everything native: 30 fps idle, 1024 px planet textures, planets at full resolution. The picture is unchanged."
+                                : WidgetConfig.perfMode === "balanced" ? "20 fps idle, sensors every 3 s, big planets drawn at 85% resolution. Hard to tell apart from Quality."
+                                : WidgetConfig.perfMode === "performance" ? "15 fps idle (orbits look steppier), 512 px textures, sensors every 5 s, big planets at 60% (slightly soft). Roughly 2-3x cheaper."
+                                : "Custom: you changed a knob below by hand. Pick a preset to set them all."
+                        }
 
                         OWToggleRow { label: "Shrink widgets when far away"; on: WidgetConfig.shrinkFar; modified: WidgetConfig.isUiModified("shrinkFar"); onToggled: (v) => WidgetConfig.setShrinkFar(v); onResetClicked: WidgetConfig.resetUiOption("shrinkFar") }
                         FieldHeader { label: "PLANET TEXTURE RESOLUTION"; modified: WidgetConfig.isUiModified("bakeW"); onResetClicked: WidgetConfig.resetUiOption("bakeW") }
@@ -1824,7 +1924,7 @@ Item {
                         Row {
                             spacing: 6
                             Repeater {
-                                model: [15, 30, 60, 0]
+                                model: [15, 20, 30, 60, 0]
                                 delegate: OWButton {
                                     required property int modelData
                                     label: modelData === 0 ? "OFF" : (modelData + " fps"); pad: 10
@@ -1833,6 +1933,71 @@ Item {
                                 }
                             }
                         }
+                        FieldHeader { label: "SENSOR POLLING"; modified: WidgetConfig.isUiModified("sensorMs"); onResetClicked: WidgetConfig.resetUiOption("sensorMs") }
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: [2000, 3000, 5000]
+                                delegate: OWButton {
+                                    required property int modelData
+                                    label: (modelData / 1000) + " s"; pad: 10
+                                    active: WidgetConfig.sensorMs === modelData
+                                    onClicked: WidgetConfig.setUiOpt("sensorMs", modelData)
+                                }
+                            }
+                        }
+                        FieldHeader { label: "BIG PLANET RENDER SCALE"; modified: WidgetConfig.isUiModified("planetScale"); onResetClicked: WidgetConfig.resetUiOption("planetScale") }
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: [100, 85, 70, 60, 50]
+                                delegate: OWButton {
+                                    required property int modelData
+                                    label: modelData + "%"; pad: 10
+                                    active: Math.round(WidgetConfig.planetScale * 100) === modelData
+                                    onClicked: WidgetConfig.setUiOpt("planetScale", modelData / 100)
+                                }
+                            }
+                        }
+                        Text {
+                            width: parent.width; wrapMode: Text.Wrap
+                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                            text: "Below 100% a large planet is drawn smaller and stretched: cheaper, a little softer. 100% is untouched."
+                        }
+                        OWToggleRow { label: "Performance values while on battery"; on: WidgetConfig.autoBattery; modified: WidgetConfig.isUiModified("autoBattery"); onToggled: (v) => WidgetConfig.setUiOpt("autoBattery", v); onResetClicked: WidgetConfig.resetUiOption("autoBattery") }
+                        OWToggleRow { label: "FPS / CPU / GPU readout (top right)"; on: WidgetConfig.showDiag; modified: WidgetConfig.isUiModified("showDiag"); onToggled: (v) => WidgetConfig.setUiOpt("showDiag", v); onResetClicked: WidgetConfig.resetUiOption("showDiag") }
+                    }
+
+                    // ---- 6a. BACKUP & RESET A PLANET ----
+                    OptAccordion {
+                        optKey: "backup"; title: "Backup & reset a planet"; subtitle: "Back up widgets.json, reset the widgets of one planet"
+
+                        FieldHeader { label: "BACKUP" }
+                        OWButton { label: "BACK UP widgets.json"; onClicked: WidgetConfig.backupRequested() }
+                        Text { visible: WidgetConfig.backupMsg !== ""; width: parent.width; wrapMode: Text.Wrap; text: WidgetConfig.backupMsg; color: root.cGold; font.family: root.mono; font.pixelSize: 10 }
+                        FieldHeader { label: "RESET ONE PLANET" }
+                        Text {
+                            width: parent.width; wrapMode: Text.Wrap
+                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                            text: "Click a planet twice: its widgets go back to the defaults and widgets you added there are deleted."
+                        }
+                        Flow {
+                            width: parent.width; spacing: 6
+                            Repeater {
+                                model: WidgetConfig.planets
+                                delegate: OWButton {
+                                    required property var modelData
+                                    label: root.confirmPlanet === modelData.id ? "SURE? " + modelData.name : modelData.name
+                                    pad: 8
+                                    danger: root.confirmPlanet === modelData.id
+                                    onClicked: {
+                                        if (root.confirmPlanet === modelData.id) { WidgetConfig.resetPlanet(modelData.id); root.expandedId = ""; root.confirmPlanet = ""; }
+                                        else root.confirmPlanet = modelData.id;
+                                    }
+                                }
+                            }
+                        }
+                        Timer { interval: 3000; running: root.confirmPlanet !== ""; onTriggered: root.confirmPlanet = "" }
                     }
 
                     // ---- 6b. FLIGHT & CAMERA ----
@@ -1846,6 +2011,8 @@ Item {
                         OWSlider { width: parent.width; from: 3.0; to: 12.0; step: 0.5; value: WidgetConfig.lockOrbitK; text: WidgetConfig.lockOrbitK.toFixed(1) + " radii"; onMoved: (v) => WidgetConfig.setUiOpt("lockOrbitK", v) }
                         FieldHeader { label: "MOUSE LOOK SENSITIVITY"; modified: WidgetConfig.isUiModified("lookSens"); onResetClicked: WidgetConfig.resetUiOption("lookSens") }
                         OWSlider { width: parent.width; from: 0.3; to: 2.5; step: 0.05; value: WidgetConfig.lookSens; text: WidgetConfig.lookSens.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("lookSens", v) }
+                        FieldHeader { label: "UI SCROLL SENSITIVITY"; modified: WidgetConfig.isUiModified("uiScrollSens"); onResetClicked: WidgetConfig.resetUiOption("uiScrollSens") }
+                        OWSlider { width: parent.width; from: 0.3; to: 4.0; step: 0.1; value: WidgetConfig.uiScrollSens; text: WidgetConfig.uiScrollSens.toFixed(1) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("uiScrollSens", v) }
                         FieldHeader { label: "DEFAULT LOOP SPEED"; modified: WidgetConfig.isUiModified("defaultTimeScale"); onResetClicked: WidgetConfig.resetUiOption("defaultTimeScale") }
                         OWSlider { width: parent.width; from: 1; to: 50; step: 1; value: WidgetConfig.defaultTimeScale; text: Math.round(WidgetConfig.defaultTimeScale) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("defaultTimeScale", v) }
                     }
@@ -1881,8 +2048,27 @@ Item {
 
                     // ---- 8. WIDGET PACK THEMES ----
                     OptAccordion {
-                        optKey: "packthemes"; title: "Widget pack themes"; subtitle: "Global Glyph, Lucid & Serpantinum colours"
+                        optKey: "packthemes"; title: "Widget pack themes"; subtitle: "Global Outer Wilds, Glyph, Lucid & Serpantinum colours"
 
+                        Text { text: "OUTER WILDS (NATIVE)  (blank = default)"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        OWToggleRow { label: "Tint colours by host planet"; on: WidgetConfig.nativePlanetTheme; modified: WidgetConfig.isUiModified("nativePlanetTheme"); onToggled: (v) => WidgetConfig.setPackTheme("nativePlanetTheme", v); onResetClicked: WidgetConfig.resetUiOption("nativePlanetTheme") }
+                        OWToggleRow { label: "Layered instrument depth"; on: WidgetConfig.nativeLayers; modified: WidgetConfig.isUiModified("nativeLayers"); onToggled: (v) => WidgetConfig.setPackTheme("nativeLayers", v); onResetClicked: WidgetConfig.resetUiOption("nativeLayers") }
+                        FieldHeader { label: "CARD OPACITY"; modified: WidgetConfig.isUiModified("nativeOpacity"); onResetClicked: WidgetConfig.resetUiOption("nativeOpacity") }
+                        OWSlider { width: parent.width; from: 0.2; to: 1.0; step: 0.05; value: WidgetConfig.nativeOpacity; text: Math.round(WidgetConfig.nativeOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setPackTheme("nativeOpacity", v) }
+                        FieldHeader { label: "CARD FILL"; modified: WidgetConfig.isUiModified("nativeBg"); onResetClicked: WidgetConfig.resetUiOption("nativeBg") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.nativeBg; onEdited: (v) => WidgetConfig.setPackTheme("nativeBg", v) }
+                        FieldHeader { label: "INNER LAYER FILL"; modified: WidgetConfig.isUiModified("nativeSurface"); onResetClicked: WidgetConfig.resetUiOption("nativeSurface") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.nativeSurface; onEdited: (v) => WidgetConfig.setPackTheme("nativeSurface", v) }
+                        FieldHeader { label: "PRIMARY TEXT"; modified: WidgetConfig.isUiModified("nativeText"); onResetClicked: WidgetConfig.resetUiOption("nativeText") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.nativeText; onEdited: (v) => WidgetConfig.setPackTheme("nativeText", v) }
+                        FieldHeader { label: "SECONDARY TEXT"; modified: WidgetConfig.isUiModified("nativeDim"); onResetClicked: WidgetConfig.resetUiOption("nativeDim") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.nativeDim; onEdited: (v) => WidgetConfig.setPackTheme("nativeDim", v) }
+                        FieldHeader { label: "ACCENT OVERRIDE"; modified: WidgetConfig.isUiModified("nativeAccent"); onResetClicked: WidgetConfig.resetUiOption("nativeAccent") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.nativeAccent; onEdited: (v) => WidgetConfig.setPackTheme("nativeAccent", v) }
+                        FieldHeader { label: "FONT"; modified: WidgetConfig.isUiModified("nativeFont"); onResetClicked: WidgetConfig.resetUiOption("nativeFont") }
+                        OWFontPicker { width: parent.width; value: WidgetConfig.nativeFont; onEdited: (v) => WidgetConfig.setPackTheme("nativeFont", v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
                         Text { text: "GLYPH  (blank = default)"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
                         FieldHeader { label: "CARD FILL"; modified: WidgetConfig.isUiModified("glyphBg"); onResetClicked: WidgetConfig.resetUiOption("glyphBg") }
                         OWColorPicker { width: parent.width; value: WidgetConfig.glyphBg; onEdited: (v) => WidgetConfig.setPackTheme("glyphBg", v) }
@@ -2046,7 +2232,7 @@ Item {
             Text {
                 x: 18; y: 44; width: parent.width - 36; wrapMode: Text.Wrap
                 text: root.pickMode === "add"
-                      ? "Goes on " + WidgetConfig.planetName(root.lastHost) + (root.pickFromFocus ? " (focused planet)" : "") + "; move it afterwards."
+                      ? "Goes on " + WidgetConfig.planetName(root.lastHost) + (root.pickFromFocus ? " (focused planet)" : "") + ". Dimmed = already on a planet: MOVE HERE relocates it, + COPY adds another."
                       : "Keeps this widget's planet, orbit and size."
                 color: root.cDim; font.family: root.mono; font.pixelSize: 10
             }
@@ -2056,19 +2242,29 @@ Item {
                 text: root.pickQuery; onTextChanged: root.pickQuery = text
             }
 
+            Flow {
+                id: groupFlow
+                visible: root.pickMode === "add" && root.pickGroups.length > 1
+                x: 18; y: 116; width: parent.width - 36; spacing: 6
+                OWButton { label: "ALL"; pad: 8; active: root.pickGroup === ""; onClicked: root.pickGroup = "" }
+                Repeater {
+                    model: root.pickGroups
+                    delegate: OWButton {
+                        required property string modelData
+                        label: modelData.toUpperCase(); pad: 8
+                        active: root.pickGroup === modelData
+                        onClicked: root.pickGroup = (root.pickGroup === modelData ? "" : modelData)
+                    }
+                }
+            }
+
             Flickable {
                 id: pickFlick
-                x: 18; y: 116; width: parent.width - 46; height: parent.height - 128
+                x: 18; y: groupFlow.visible ? groupFlow.y + groupFlow.height + 8 : 116; width: parent.width - 46; height: parent.height - y - 12
                 contentHeight: pickCol.height + 12; clip: true
                 boundsBehavior: Flickable.StopAtBounds
 
-                WheelHandler {
-                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                    onWheel: (e) => {
-                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                        pickFlick.contentY = Math.max(0, Math.min(Math.max(0, pickFlick.contentHeight - pickFlick.height), pickFlick.contentY - dy));
-                    }
-                }
+                OWWheel { scrollTarget: pickFlick }
 
                 Column {
                     id: pickCol
@@ -2079,7 +2275,8 @@ Item {
                             id: pe
                             required property var modelData
                             width: pickCol.width
-                            height: modelData.kind === "group" ? 30 : 28
+                            readonly property bool placed: modelData.kind === "item" && modelData.where !== undefined && modelData.where.length > 0
+                            height: modelData.kind === "group" ? 30 : (placed ? 46 : 28)
 
                             Text {
                                 visible: pe.modelData.kind === "group"
@@ -2089,19 +2286,36 @@ Item {
                             }
                             Rectangle {
                                 visible: pe.modelData.kind !== "group"
-                                width: parent.width; height: 30; radius: 7
-                                color: pma.containsMouse ? "#1CD4AF37" : "transparent"
+                                width: parent.width; height: pe.placed ? 42 : 30; radius: 7
+                                color: pma.containsMouse && !pe.placed ? "#1CD4AF37" : "transparent"
                                 Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                Text {
-                                    x: 8; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 16; elide: Text.ElideRight
-                                    text: pe.modelData.kind === "restore"
-                                          ? pe.modelData.name + "   ·   " + WidgetConfig.planetName(pe.modelData.planet)
-                                          : (pe.modelData.name || "")
-                                    color: pe.modelData.kind === "restore" ? root.cGold : root.cCream
-                                    font.family: root.mono; font.pixelSize: 12
+                                Column {
+                                    x: 8; anchors.verticalCenter: parent.verticalCenter
+                                    width: parent.width - 16 - (pe.placed ? 168 : 0); spacing: 2
+                                    Text {
+                                        width: parent.width; elide: Text.ElideRight
+                                        text: pe.modelData.kind === "restore"
+                                              ? pe.modelData.name + "   ·   " + WidgetConfig.planetName(pe.modelData.planet)
+                                              : (pe.modelData.name || "")
+                                        color: pe.modelData.kind === "restore" ? root.cGold : (pe.placed ? root.cDim : root.cCream)
+                                        font.family: root.mono; font.pixelSize: 12
+                                    }
+                                    Text {
+                                        visible: pe.placed; width: parent.width; elide: Text.ElideRight
+                                        text: pe.placed ? "ON: " + pe.modelData.where.join(", ") : ""
+                                        color: root.cGold; opacity: 0.75
+                                        font.family: root.mono; font.pixelSize: 9; font.letterSpacing: 1
+                                    }
+                                }
+                                Row {
+                                    visible: pe.placed
+                                    anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
+                                    spacing: 6
+                                    OWButton { visible: pe.modelData.canMove === true; label: "MOVE HERE"; pad: 8; onClicked: root.pickMove(pe.modelData.source) }
+                                    OWButton { label: "+ COPY"; pad: 8; onClicked: root.pickChosen(pe.modelData.source) }
                                 }
                                 MouseArea {
-                                    id: pma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    id: pma; anchors.fill: parent; enabled: !pe.placed; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
                                         if (pe.modelData.kind === "restore") root.pickRestore(pe.modelData.id);
                                         else if (pe.modelData.kind === "item") root.pickChosen(pe.modelData.source);
@@ -2124,7 +2338,7 @@ Item {
         z: 1
         property real slide: (root.inspectorOpen && WidgetConfig.panelOpen) ? 1.0 : 0.0
         Behavior on slide { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-        visible: slide > 0.01
+        visible: (root.inspectorOpen && WidgetConfig.panelOpen) || slide > 0.01
         opacity: slide
         enabled: root.inspectorOpen && WidgetConfig.panelOpen
         anchors.top: parent.top
@@ -2151,7 +2365,12 @@ Item {
         readonly property string wid: root.expandedId
         readonly property bool modified: d !== null && (WidgetConfig.overrides[wid] !== undefined || d._extra)
         readonly property string keyAction: d ? Keybinds.forWidget(d.source) : ""
-        readonly property var schema: d ? WidgetConfig.settingsSchema(d.source) : []
+        readonly property string sourcePath: d ? String(d.source || "") : ""
+        readonly property var schema: sourcePath !== "" ? WidgetConfig.settingsSchema(sourcePath) : []
+        Connections {
+            target: root
+            function onInspectorTabChanged() { inspFlick.contentY = 0; }
+        }
 
         Rectangle {
             anchors.fill: parent; radius: parent.radius; z: -1
@@ -2217,13 +2436,7 @@ Item {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
-            WheelHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onWheel: (e) => {
-                    const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                    inspFlick.contentY = Math.max(0, Math.min(Math.max(0, inspFlick.contentHeight - inspFlick.height), inspFlick.contentY - dy));
-                }
-            }
+            OWWheel { scrollTarget: inspFlick }
 
             Column {
                 id: inspCol
@@ -2459,10 +2672,10 @@ Item {
                                 }
 
                                 Flow {
-                                    visible: opt.s.type === "choice" && Array.isArray(opt.s.choices) && opt.s.choices.length <= 3
+                                    visible: opt.s.type === "choice" && !!opt.s.choices && opt.s.choices.length > 0 && opt.s.choices.length <= 3
                                     width: opt.width; spacing: 5
                                     Repeater {
-                                        model: opt.s.type === "choice" && Array.isArray(opt.s.choices) && opt.s.choices.length <= 3 ? opt.s.choices : []
+                                        model: (opt.s.type === "choice" && !!opt.s.choices && opt.s.choices.length > 0 && opt.s.choices.length <= 3) ? opt.s.choices : []
                                         delegate: OWButton {
                                             required property var modelData
                                             readonly property var val: (typeof modelData === "object") ? modelData.value : modelData
@@ -2474,9 +2687,9 @@ Item {
                                 }
 
                                 OWDropdown {
-                                    visible: opt.s.type === "choice" && Array.isArray(opt.s.choices) && opt.s.choices.length > 3
+                                    visible: opt.s.type === "choice" && !!opt.s.choices && opt.s.choices.length > 3
                                     width: opt.width
-                                    model: opt.s.type === "choice" && Array.isArray(opt.s.choices) ? opt.s.choices : []
+                                    model: (opt.s.type === "choice" && !!opt.s.choices) ? opt.s.choices : []
                                     value: opt.cur
                                     onSelected: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
                                 }

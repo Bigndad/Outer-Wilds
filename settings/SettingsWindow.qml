@@ -33,7 +33,7 @@ Scope {
         dialogOpen = true;
         pickProc.command = [
             "sh", "-c",
-            'if command -v zenity >/dev/null 2>&1; then zenity --file-selection --title="$1" --file-filter="$2" --file-filter="All files | *"; '
+            'if command -v zenity >/dev/null 2>&1; then zenity --file-selection --width=720 --height=480 --title="$1" --file-filter="$2" --file-filter="All files | *"; '
           + 'elif command -v kdialog >/dev/null 2>&1; then kdialog --getopenfilename "$HOME" "$3" --title "$1"; '
           + 'else echo "__NO_DIALOG__"; fi',
             "--", title || "Select file", zenFilter || "Images | *.png *.jpg *.jpeg *.webp *.gif", kdFilter || "*.png *.jpg *.jpeg *.webp *.gif"
@@ -48,7 +48,7 @@ Scope {
         exportProc.command = [
             "sh", "-c",
             'OUT=""; '
-          + 'if command -v zenity >/dev/null 2>&1; then OUT=$(zenity --file-selection --save --confirm-overwrite --title="Export layout preset" --filename="$HOME/$1.json" --file-filter="JSON | *.json"); '
+          + 'if command -v zenity >/dev/null 2>&1; then OUT=$(zenity --file-selection --width=720 --height=480 --save --confirm-overwrite --title="Export layout preset" --filename="$HOME/$1.json" --file-filter="JSON | *.json"); '
           + 'elif command -v kdialog >/dev/null 2>&1; then OUT=$(kdialog --getsavefilename "$HOME/$1.json" "*.json" --title "Export layout preset"); '
           + 'else echo "__NO_DIALOG__"; exit 0; fi; '
           + 'if [ -n "$OUT" ]; then printf "%s" "$2" > "$OUT" && printf "OK:%s" "$OUT"; fi',
@@ -63,7 +63,7 @@ Scope {
         importProc.command = [
             "sh", "-c",
             'IN=""; '
-          + 'if command -v zenity >/dev/null 2>&1; then IN=$(zenity --file-selection --title="Import layout preset" --file-filter="JSON | *.json" --file-filter="All files | *"); '
+          + 'if command -v zenity >/dev/null 2>&1; then IN=$(zenity --file-selection --width=720 --height=480 --title="Import layout preset" --file-filter="JSON | *.json" --file-filter="All files | *"); '
           + 'elif command -v kdialog >/dev/null 2>&1; then IN=$(kdialog --getopenfilename "$HOME" "*.json" --title "Import layout preset"); '
           + 'else echo "__NO_DIALOG__"; exit 0; fi; '
           + 'if [ -n "$IN" ] && [ -f "$IN" ]; then printf "NAME:%s\n" "$(basename "$IN" .json)"; cat "$IN"; fi'
@@ -126,10 +126,9 @@ Scope {
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "outerwilds-settings"
-        WlrLayershell.keyboardFocus: (WidgetConfig.panelOpen && !root.dialogOpen) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: (WidgetConfig.panelOpen && !root.dialogOpen) ? (panel.capturing !== "" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand) : WlrKeyboardFocus.None
         anchors { top: true; bottom: true; right: true }
-        implicitWidth: 810
-        mask: Region { item: panel.inspectorOpen ? panel : panel.mainPanelItem }
+        implicitWidth: panel.inspectorShown ? 810 : 420
 
         SettingsPanel {
             id: panel

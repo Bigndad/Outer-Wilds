@@ -33,7 +33,7 @@ Item {
     // While nothing is moving (no keys, no drag, camera settled, no scope) the scene only needs to redraw at
     // fpsIdle. Skipped frames change nothing, so Qt Quick renders nothing and the GPU sits idle.
     // Any input or camera motion runs at full display rate. fpsIdle: 0 = off (always full rate).
-    property real fpsIdle: WidgetConfig.fpsIdle
+    property real fpsIdle: WidgetConfig.effFpsIdle
     property real fpsActive: WidgetConfig.fpsActive
     property real _acc: 0.0
     function _heldAny() { for (const k in actDown) if (actDown[k] === true) return true; return false; }
@@ -118,7 +118,20 @@ Item {
     readonly property real lockOrbitK: WidgetConfig.lockOrbitK
     readonly property real lockOrbitMin: 360.0
 
+    Connections {
+        target: WidgetConfig
+        function onWidgetTypingChanged() {
+            if (WidgetConfig.widgetTyping) {
+                root.actDown = ({});
+                root.heldBy = ({});
+                root._tapKey = 0;
+                root.isInteracting = false;
+            }
+        }
+    }
+
     Keys.onPressed: (event) => {
+        if (WidgetConfig.widgetTyping) return;
         if (event.isAutoRepeat) return;
         const a = Keybinds.holdAction(event);
         if (a !== "") { heldBy[event.key] = a; actDown[a] = true; }
@@ -134,6 +147,7 @@ Item {
         }
     }
     Keys.onReleased: (event) => {
+        if (WidgetConfig.widgetTyping) return;
         if (event.isAutoRepeat) return;
         const a = heldBy[event.key];
         if (a !== undefined) { actDown[a] = false; delete heldBy[event.key]; }
@@ -796,6 +810,7 @@ Item {
             if (mouseArea.containsMouse) mouseArea.updateHover(mouseArea.mouseX, mouseArea.mouseY);
 
             root.lastDt = dt;
+            root._diagFrames++;
             root.frameUpdated();
         }
     }
@@ -1218,6 +1233,7 @@ Item {
         }
 
         onPositionChanged: (mouse) => {
+            if (WidgetConfig.widgetTyping) return;
             if (pressed && (mouse.buttons & Qt.LeftButton)) {
                 let dx = mouse.x - lastX;
                 let dy = mouse.y - lastY;
@@ -1247,6 +1263,13 @@ Item {
         }
 
         onPressed: (mouse) => {
+            if (WidgetConfig.widgetTyping) {
+                WidgetConfig.clearWidgetTyping();
+                root.forceActiveFocus();
+                skipNextRelease = true;
+                dragged = false;
+                return;
+            }
             root.forceActiveFocus();
             root.isInteracting = true;
             lastX = mouse.x;
@@ -1264,6 +1287,7 @@ Item {
         }
 
         onDoubleClicked: (mouse) => {
+            if (WidgetConfig.widgetTyping) return;
             if (mouse.button === Qt.LeftButton) {
                 if (engageAt(mouse.x, mouse.y)) skipNextRelease = true;
             }
@@ -1313,6 +1337,7 @@ Item {
         }
 
         onWheel: (wheel) => {
+            if (WidgetConfig.widgetTyping) return;
             let delta = wheel.angleDelta.y;
             if (root.lockedPlanetId !== "") {
                 let factor = delta > 0 ? Math.pow(0.84, delta / 120.0) : Math.pow(1.18, -delta / 120.0);
@@ -1365,6 +1390,41 @@ Item {
     // --- "Back to Map" chip, only while the Rumor Map was entered from the Map View (z 40500) ---
     MapReturnChip {
         anchors.fill: parent
+    }
+
+    // --- DIAGNOSTICS: scene frames per second + system CPU / GPU (Control Centre > OPTIONS, the "diag" key, or `ipc call perf diag`) ---
+    // "SCENE" counts frames the scene actually worked on (the idle cap skips the rest), so it shows the cap working.
+    // CPU / GPU are whole-system numbers from the HUD feed, not just this shell.
+    property int _diagFrames: 0
+    property int diagFps: 0
+    Timer {
+        interval: 1000
+        repeat: true
+        running: WidgetConfig.showDiag && root.active
+        onTriggered: { root.diagFps = root._diagFrames; root._diagFrames = 0; }
+    }
+    Rectangle {
+        visible: WidgetConfig.showDiag
+        z: 32000
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 18
+        width: diagText.implicitWidth + 24
+        height: diagText.implicitHeight + 16
+        radius: 6
+        color: "#CC07080C"
+        border.color: root.colGold
+        border.width: 1
+        Text {
+            id: diagText
+            anchors.centerIn: parent
+            color: root.colCream
+            font.family: "monospace"
+            font.pixelSize: 12
+            text: "SCENE " + root.diagFps + " fps (idle cap " + (root.fpsIdle > 0 ? root.fpsIdle : "off") + ")\n"
+                + "MODE  " + WidgetConfig.effMode.toUpperCase() + (WidgetConfig.autoBattery && WidgetConfig.onBattery ? " (battery)" : "") + "\n"
+                + "CPU   " + Math.round(HudData.cpu * 100) + "%   GPU " + Math.round(HudData.battery * 100) + "%   (system)"
+        }
     }
 
     // --- KEYS: map / rumor / edit / key list / loop panel / signalscope (Keybinds.qml + the Control Centre's KEYS tab) ---

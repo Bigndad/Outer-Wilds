@@ -52,16 +52,66 @@ Item {
     property bool _silentFilterChange: false
     property bool _refreshedForDisplay: false
     property string _lastFilterApplied: ""
+    property string _lastSubPathApplied: ""
     property int _lastProxyVersion: -1
 
     property var configSettings: Config.rawSettings
-    property string srcDir: {
+    property string rootSrcDir: {
         let dummy = configSettings;
         return Config.getSetting("wallpaperDir", "") || Config.getSetting("wallpaper_dir", "") || Quickshell.env("WALLPAPER_DIR") || (Quickshell.env("HOME") + "/Pictures/Wallpapers");
+    }
+    property string currentSubPath: ""
+    readonly property string srcDir: currentSubPath !== "" ? (rootSrcDir + "/" + currentSubPath) : rootSrcDir
+    property var folderItems: []
+
+    function enterFolder(folderName) {
+        if (!folderName) return;
+        window.resetPreviewPlayer();
+        window.currentSubPath = window.currentSubPath !== "" ? (window.currentSubPath + "/" + folderName) : folderName;
+        if (window.currentFilter !== "All") {
+            window._silentFilterChange = true;
+            window.currentFilter = "All";
+            window._silentFilterChange = false;
+        }
+    }
+
+    function leaveFolder() {
+        if (window.currentSubPath === "") return;
+        window.resetPreviewPlayer();
+        let idx = window.currentSubPath.lastIndexOf("/");
+        window.currentSubPath = idx >= 0 ? window.currentSubPath.substring(0, idx) : "";
+        if (window.currentFilter !== "All") {
+            window._silentFilterChange = true;
+            window.currentFilter = "All";
+            window._silentFilterChange = false;
+        }
+    }
+
+    function syncFoldersFromDirModel() {
+        if (dirModel.status !== FolderListModel.Ready) return;
+        let existing = {};
+        for (let i = 0; i < window.folderItems.length; i++) existing[window.folderItems[i].name] = window.folderItems[i];
+        let next = [];
+        for (let i = 0; i < dirModel.count; i++) {
+            let fn = String(dirModel.get(i, "fileName") || "");
+            if (!fn || fn.startsWith(".")) continue;
+            next.push(existing[fn] || { "name": fn, "path": window.srcDir + "/" + fn, "itemCount": 0, "coverPath": "", "coverUrl": "" });
+        }
+        if (JSON.stringify(next) !== JSON.stringify(window.folderItems)) {
+            window.folderItems = next;
+            window.cacheVersion++;
+            if (window.currentFilter !== "Search") window.applyFilters(true);
+        }
     }
 
     onSrcDirChanged: {
         window.initialFocusSet = false;
+        window.folderItems = [];
+        localProxyModel.clear();
+        videoProxyModel.clear();
+        displayModel.clear();
+        window.cacheVersion++;
+        window.syncFoldersFromDirModel();
         window.syncFromSrcModel();
         window.triggerIndexer();
     }
@@ -70,8 +120,9 @@ Item {
         target: Config
         function onSettingsLoaded() {
             let dir = Config.getSetting("wallpaperDir", "") || Config.getSetting("wallpaper_dir", "") || Quickshell.env("WALLPAPER_DIR") || (Quickshell.env("HOME") + "/Pictures/Wallpapers");
-            if (dir && dir !== window.srcDir) {
-                window.srcDir = dir;
+            if (dir && dir !== window.rootSrcDir) {
+                window.currentSubPath = "";
+                window.rootSrcDir = dir;
             }
         }
     }
@@ -104,7 +155,7 @@ Item {
         onTriggered: window.isApplying = false
     }
 
-    property bool isStartup: srcModel.status === FolderListModel.Loading && localProxyModel.count === 0 && videoProxyModel.count === 0
+    property bool isStartup: srcModel.status === FolderListModel.Loading && localProxyModel.count === 0 && videoProxyModel.count === 0 && window.folderItems.length === 0
     property bool isExiting: false
     property bool isReady: visible && !isExiting
 
@@ -1058,6 +1109,17 @@ Item {
         }
     }
 
+    FolderListModel {
+        id: dirModel
+        folder: "file://" + window.srcDir
+        showDirs: true
+        showFiles: false
+        showDotAndDotDot: false
+        sortField: FolderListModel.Name
+        onCountChanged: window.syncFoldersFromDirModel()
+        onStatusChanged: if (status === FolderListModel.Ready) window.syncFoldersFromDirModel()
+    }
+
     Timer {
         id: indexerDebounceTimer
         interval: 150
@@ -1154,14 +1216,30 @@ Item {
 
     function loadIndexData(data) {
         if (!data || !data.items) return;
+        if (data.srcDir && data.srcDir !== window.srcDir) return;
 
         let localItems = [];
         let videoItems = [];
+        let nextFolders = Array.isArray(data.folders) ? data.folders : [];
         let seen = {};
         let newSrcLookup = {};
         let newThumbLookup = {};
         let newColorMap = {};
         let newBucketMap = {};
+
+        if (Array.isArray(data.subLookup)) {
+            for (let s = 0; s < data.subLookup.length; s++) {
+                let si = data.subLookup[s];
+                if (!si || !si.fileName) continue;
+                let sfn = String(si.fileName), sclean = window.getCleanName(sfn), sbase = window.getCleanBaseName(sfn);
+                if (!newThumbLookup[sfn]) newThumbLookup[sfn] = si;
+                if (!newThumbLookup[sclean]) newThumbLookup[sclean] = si;
+                if (!newThumbLookup[sbase]) newThumbLookup[sbase] = si;
+                if (!newSrcLookup[sfn]) newSrcLookup[sfn] = sfn;
+                if (!newSrcLookup[sclean]) newSrcLookup[sclean] = sfn;
+                if (!newSrcLookup[sbase]) newSrcLookup[sbase] = sfn;
+            }
+        }
 
         for (let i = 0; i < data.items.length; i++) {
             let item = data.items[i];
@@ -1207,9 +1285,11 @@ Item {
 
         let localChanged = !window.itemsEqualToModel(localProxyModel, localItems);
         let videoChanged = !window.itemsEqualToModel(videoProxyModel, videoItems);
+        let foldersChanged = JSON.stringify(nextFolders) !== JSON.stringify(window.folderItems);
 
-        if (!localChanged && !videoChanged) return;
+        if (!localChanged && !videoChanged && !foldersChanged) return;
 
+        window.folderItems = nextFolders;
         window.srcNameLookup = newSrcLookup;
         window.thumbLookup = newThumbLookup;
         window.colorMap = newColorMap;
@@ -1325,7 +1405,7 @@ Item {
         let wasLocalMode = localModes.indexOf(window._lastFilterApplied) !== -1;
 
         let canReuseDisplay = false;
-        if (displayModel.count > 0 && window._lastProxyVersion === window.cacheVersion) {
+        if (displayModel.count > 0 && window._lastProxyVersion === window.cacheVersion && window._lastSubPathApplied === window.currentSubPath) {
             if (isLocalMode && wasLocalMode) {
                 canReuseDisplay = true;
             } else if (window.currentFilter === window._lastFilterApplied && window.currentFilter !== "History" && window.currentFilter !== "Favorites") {
@@ -1399,6 +1479,19 @@ Item {
         let anchorIndex = -1;
 
         if (isLocalMode) {
+            for (let f = 0; f < window.folderItems.length; f++) {
+                let fd = window.folderItems[f];
+                if (!fd || !fd.name) continue;
+                newItems.push({
+                    "fileName": String(fd.name), "filePath": String(fd.path || ""),
+                    "fileUrl": String(fd.coverUrl || ""), "posterPath": String(fd.coverPath || ""),
+                    "posterUrl": String(fd.coverUrl || ""), "isVideo": false, "isFolder": true,
+                    "itemCount": Number(fd.itemCount || 0), "hex": "#808080", "bucket": "All"
+                });
+                let curIdx = newItems.length - 1;
+                if (firstValidIndex === -1) firstValidIndex = curIdx;
+                lastValidIndex = curIdx;
+            }
             for (let i = 0; i < localProxyModel.count; i++) {
                 let it = localProxyModel.get(i);
                 if (!it || !it.fileName) continue;
@@ -1408,14 +1501,10 @@ Item {
 
                 let bucket = it.bucket || "Monochrome";
                 newItems.push({
-                    "fileName": fname,
-                    "filePath": it.filePath || "",
-                    "fileUrl": String(it.fileUrl),
-                    "posterPath": it.posterPath || "",
-                    "posterUrl": String(it.posterUrl || ""),
-                    "isVideo": false,
-                    "hex": it.hex || "#808080",
-                    "bucket": bucket
+                    "fileName": fname, "filePath": it.filePath || "", "fileUrl": String(it.fileUrl),
+                    "posterPath": it.posterPath || "", "posterUrl": String(it.posterUrl || ""),
+                    "isVideo": false, "isFolder": false, "itemCount": 0,
+                    "hex": it.hex || "#808080", "bucket": bucket
                 });
 
                 let currentIndex = newItems.length - 1;
@@ -1440,14 +1529,10 @@ Item {
                 seenNames[fname] = true;
 
                 newItems.push({
-                    "fileName": fname,
-                    "filePath": histItems[h].filePath || "",
-                    "fileUrl": histItems[h].fileUrl,
-                    "posterPath": histItems[h].posterPath || "",
-                    "posterUrl": histItems[h].posterUrl || "",
-                    "isVideo": !!histItems[h].isVideo,
-                    "hex": histItems[h].hex || "#808080",
-                    "bucket": window.currentFilter
+                    "fileName": fname, "filePath": histItems[h].filePath || "", "fileUrl": histItems[h].fileUrl,
+                    "posterPath": histItems[h].posterPath || "", "posterUrl": histItems[h].posterUrl || "",
+                    "isVideo": !!histItems[h].isVideo, "isFolder": false, "itemCount": 0,
+                    "hex": histItems[h].hex || "#808080", "bucket": window.currentFilter
                 });
 
                 let currentIndex = newItems.length - 1;
@@ -1469,14 +1554,10 @@ Item {
                     seenNames[fname] = true;
 
                     newItems.push({
-                        "fileName": fname,
-                        "filePath": it.filePath || "",
-                        "fileUrl": String(it.fileUrl),
-                        "posterPath": it.posterPath || "",
-                        "posterUrl": String(it.posterUrl || ""),
-                        "isVideo": !!it.isVideo,
-                        "hex": it.hex || "#808080",
-                        "bucket": window.currentFilter
+                        "fileName": fname, "filePath": it.filePath || "", "fileUrl": String(it.fileUrl),
+                        "posterPath": it.posterPath || "", "posterUrl": String(it.posterUrl || ""),
+                        "isVideo": !!it.isVideo, "isFolder": false, "itemCount": 0,
+                        "hex": it.hex || "#808080", "bucket": window.currentFilter
                     });
 
                     let currentIndex = newItems.length - 1;
@@ -1512,7 +1593,9 @@ Item {
                         d.fileName !== newItems[i].fileName ||
                         d.fileUrl !== newItems[i].fileUrl ||
                         d.posterUrl !== newItems[i].posterUrl ||
-                        d.bucket !== newItems[i].bucket) {
+                        d.bucket !== newItems[i].bucket ||
+                        !!d.isFolder !== !!newItems[i].isFolder ||
+                        Number(d.itemCount || 0) !== Number(newItems[i].itemCount || 0)) {
                         isIdentical = false;
                         break;
                     }
@@ -1529,6 +1612,7 @@ Item {
         }
 
         window._lastFilterApplied = window.currentFilter;
+        window._lastSubPathApplied = window.currentSubPath;
         window._lastProxyVersion = window.cacheVersion;
 
         if (window.currentFilter === "History" && window.recentMode === "added") targetIndex = firstValidIndex;
@@ -1580,9 +1664,15 @@ Item {
         onActivated: {
             if (view.currentIndex >= 0 && view.currentIndex < displayModel.count) {
                 let item = displayModel.get(view.currentIndex);
-                if (item && item.fileName) window.applyWallpaper(String(item.fileName), !!item.isVideo);
+                if (item && item.isFolder) window.enterFolder(String(item.fileName));
+                else if (item && item.fileName) window.applyWallpaper(String(item.fileName), !!item.isVideo);
             }
         }
+    }
+    Shortcut {
+        sequence: "Backspace"
+        enabled: window.visible && !searchInput.hasFocus && !window.isScrollingBlocked && !window.isApplying && window.currentSubPath !== ""
+        onActivated: window.leaveFolder()
     }
     Shortcut {
         sequence: "F"
@@ -1590,7 +1680,7 @@ Item {
         onActivated: {
             if (view.currentIndex >= 0 && view.currentIndex < displayModel.count) {
                 let item = displayModel.get(view.currentIndex);
-                if (item && item.fileName) window.toggleFavorite(String(item.fileName));
+                if (item && !item.isFolder && item.fileName) window.toggleFavorite(String(item.fileName));
             }
         }
     }
@@ -1640,7 +1730,7 @@ Item {
             if (window.hasSearched && !sFn.startsWith(currentPrefix)) continue;
             if (existingProxyNames[sFn]) continue;
 
-            let item = { "fileName": sFn, "filePath": decodeURIComponent(String(fu).replace("file://", "")), "fileUrl": String(fu), "posterPath": "", "posterUrl": "", "isVideo": false, "hex": "#808080", "bucket": "Search" };
+            let item = { "fileName": sFn, "filePath": decodeURIComponent(String(fu).replace("file://", "")), "fileUrl": String(fu), "posterPath": "", "posterUrl": "", "isVideo": false, "isFolder": false, "itemCount": 0, "hex": "#808080", "bucket": "Search" };
 
             batchProxy.push(item);
             existingProxyNames[sFn] = true;
@@ -1777,7 +1867,7 @@ Item {
             property bool isFailed: false
 
             function handleFailedImage() {
-                if (delegateRoot.isFailed) return;
+                if (delegateRoot.isFolder || delegateRoot.isFailed) return;
                 delegateRoot.isFailed = true;
                 let fn = delegateRoot.safeFileName;
                 if (!fn) return;
@@ -1824,7 +1914,9 @@ Item {
             readonly property string safeFileName: fileName !== undefined ? String(fileName) : ""
             readonly property string itemFileUrl: fileUrl !== undefined ? String(fileUrl) : ""
             readonly property string itemPosterUrl: posterUrl !== undefined ? String(posterUrl) : ""
-            readonly property bool isVideo: (model.isVideo !== undefined && model.isVideo !== null) ? !!model.isVideo : (safeFileName.toLowerCase().match(/\.(mp4|mkv|mov|webm)$/) !== null || safeFileName.startsWith("000_"))
+            readonly property bool isFolder: model.isFolder === true
+            readonly property int folderItemCount: model.itemCount !== undefined ? Number(model.itemCount) : 0
+            readonly property bool isVideo: !isFolder && ((model.isVideo !== undefined && model.isVideo !== null) ? !!model.isVideo : (safeFileName.toLowerCase().match(/\.(mp4|mkv|mov|webm)$/) !== null || safeFileName.startsWith("000_")))
 
             readonly property bool isCurrent: ListView.isCurrentItem && !window.isScrollingBlocked
             readonly property bool isFakeSelected: window.isScrollingBlocked && index === 0
@@ -1903,7 +1995,11 @@ Item {
 
                 MouseArea {
                     anchors.fill: parent; enabled: !window.isScrollingBlocked && !window.isApplying && !delegateRoot.isFailed
-                    onClicked: { window.initialFocusSet = true; view.currentIndex = index; window.applyWallpaper(delegateRoot.safeFileName, delegateRoot.isVideo); }
+                    onClicked: {
+                        window.initialFocusSet = true;
+                        if (delegateRoot.isFolder) window.enterFolder(delegateRoot.safeFileName);
+                        else { view.currentIndex = index; window.applyWallpaper(delegateRoot.safeFileName, delegateRoot.isVideo); }
+                    }
                 }
 
                 Item {
@@ -1940,10 +2036,10 @@ Item {
                             width: (window.itemWidth * 1.5) + ((window.itemHeight + window.s(30)) * Math.abs(window.skewFactor)) + window.s(50)
                             height: window.itemHeight + window.s(30)
                             fillMode: Image.PreserveAspectCrop
-                            source: delegateRoot.isVideo ? (delegateRoot.itemPosterUrl !== "" ? delegateRoot.itemPosterUrl : "") : delegateRoot.itemFileUrl
+                            source: delegateRoot.isFolder ? delegateRoot.itemPosterUrl : (delegateRoot.isVideo ? (delegateRoot.itemPosterUrl !== "" ? delegateRoot.itemPosterUrl : "") : delegateRoot.itemFileUrl)
                             asynchronous: true
                             cache: true
-                            opacity: (status === Image.Ready && source.toString() !== "") ? 1.0 : 0.0
+                            opacity: (status === Image.Ready && source.toString() !== "") ? (delegateRoot.isFolder ? 0.45 : 1.0) : 0.0
                             Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
                             sourceSize.width: Math.round((window.itemWidth * 1.5) + ((window.itemHeight + window.s(30)) * 0.35) + window.s(50))
                             sourceSize.height: Math.round(window.itemHeight + window.s(30))
@@ -1991,10 +2087,57 @@ Item {
                             }
                         }
 
+                        Item {
+                            visible: delegateRoot.isFolder
+                            anchors.fill: parent
+                            transform: Matrix4x4 { property real s: -window.skewFactor; matrix: Qt.matrix4x4(1, s, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }
+
+                            Column {
+                                anchors.centerIn: parent
+                                spacing: window.s(8)
+                                width: Math.min(parent.width * 0.72, window.s(260))
+
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: "󰉋"
+                                    font.family: ThemeBackend.iconFont
+                                    font.pixelSize: window.s(42)
+                                    color: ThemeBackend.primary
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: parent.width
+                                    horizontalAlignment: Text.AlignHCenter
+                                    elide: Text.ElideMiddle
+                                    text: delegateRoot.safeFileName.toUpperCase()
+                                    font.family: ThemeBackend.fontFamily
+                                    font.pixelSize: window.s(16)
+                                    font.bold: true
+                                    color: ThemeBackend.text
+                                }
+                                Rectangle {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    width: countLbl.implicitWidth + window.s(16)
+                                    height: countLbl.implicitHeight + window.s(6)
+                                    radius: window.s(8)
+                                    color: Qt.rgba(ThemeBackend.base.r, ThemeBackend.base.g, ThemeBackend.base.b, 0.72)
+                                    Text {
+                                        id: countLbl
+                                        anchors.centerIn: parent
+                                        text: delegateRoot.folderItemCount > 0 ? (delegateRoot.folderItemCount + " ITEMS") : "FOLDER"
+                                        font.family: ThemeBackend.fontFamily
+                                        font.pixelSize: window.s(11)
+                                        font.bold: true
+                                        color: ThemeBackend.subtext0
+                                    }
+                                }
+                            }
+                        }
+
                         IconButton {
                             glassShadow: 0
                             id: videoActionButton
-                            visible: delegateRoot.isVideo
+                            visible: delegateRoot.isVideo && !delegateRoot.isFolder
                             anchors.centerIn: parent ? parent : undefined
                             size: window.s(50)
                             cornerRadius: window.s(16)
@@ -2013,7 +2156,7 @@ Item {
                     Item {
                         id: favoriteButton
                         readonly property bool isFavorite: window.favoriteKeys[window.getCleanBaseName(delegateRoot.safeFileName)] === true
-                        visible: window.currentFilter !== "Search" && delegateRoot.isCurrent
+                        visible: !delegateRoot.isFolder && window.currentFilter !== "Search" && delegateRoot.isCurrent
                         anchors.left: parent ? parent.left : undefined
                         anchors.top: parent ? parent.top : undefined
                         anchors.leftMargin: window.s(4)
@@ -2071,6 +2214,36 @@ Item {
 
         Row {
             id: filterRow; anchors.centerIn: parent ? parent : undefined; spacing: window.s(8)
+
+            Rectangle {
+                id: folderBackBtn
+                visible: window.currentSubPath !== ""
+                height: window.s(34)
+                width: visible ? Math.min(folderBackTxt.implicitWidth + window.s(22), window.s(190)) : 0
+                radius: ThemeBackend.borderRadius
+                color: Qt.alpha(folderBackMa.containsMouse ? ThemeBackend.surface2 : ThemeBackend.surface1, ThemeBackend.elementOpacity)
+                anchors.verticalCenter: parent ? parent.verticalCenter : undefined
+                Text {
+                    id: folderBackTxt
+                    anchors.centerIn: parent
+                    width: parent.width - window.s(16)
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideMiddle
+                    text: "←  " + window.currentSubPath.split("/").pop()
+                    color: ThemeBackend.text
+                    font.family: ThemeBackend.fontFamily
+                    font.pixelSize: window.s(12)
+                    font.bold: true
+                }
+                MouseArea {
+                    id: folderBackMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    enabled: !window.isApplying
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: window.leaveFolder()
+                }
+            }
 
             Rectangle {
                 id: notifDrawer; height: window.s(34)

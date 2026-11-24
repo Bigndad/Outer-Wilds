@@ -6,6 +6,7 @@ import "../"
 // Global-bind targets for Hyprland (binds live in ~/.config/hypr/outerwilds.lua):
 //   qs -c outerwilds ipc call map toggle|show|hide
 //   qs -c outerwilds ipc call rumor toggle|show|hide
+//   qs -c outerwilds ipc call perf set|cycle|diag|status      qs -c outerwilds ipc call layout next|load|list
 //   qs -c outerwilds ipc call scene status          (prints what the bridge sees; handy for debugging)
 // The overlays still pause the rig themselves (MapHost / RumorMap watch MapData.open / RumorData.open).
 // These work without keyboard focus, unlike the in-scene N / L / Q shortcuts.
@@ -49,6 +50,23 @@ Scope {
             if (WidgetConfig.panelOpen && WidgetConfig.panelTab === "keys") WidgetConfig.panelOpen = false;
             else { WidgetConfig.panelTab = "keys"; WidgetConfig.panelOpen = true; }
         }
+    }
+
+    // qs -c outerwilds ipc call perf set quality|balanced|performance   |   perf cycle   |   perf diag   |   perf status
+    IpcHandler {
+        target: "perf"
+        function set(mode: string): string { WidgetConfig.setPerfMode(mode); return WidgetConfig.perfMode; }
+        function cycle(): string { return WidgetConfig.cyclePerfMode(); }
+        function diag(): void { WidgetConfig.setShowDiag(!WidgetConfig.showDiag); }
+        function status(): string { return WidgetConfig.effMode + (WidgetConfig.perfMode === "custom" ? " (custom)" : ""); }
+    }
+
+    // qs -c outerwilds ipc call layout next   |   layout load <name>   |   layout list      (the saved widget layout presets)
+    IpcHandler {
+        target: "layout"
+        function next(): string { return WidgetConfig.nextPreset(); }
+        function load(name: string): bool { return WidgetConfig.loadPreset(name); }
+        function list(): string { return WidgetConfig.presetNames().join(", "); }
     }
 
     IpcHandler {

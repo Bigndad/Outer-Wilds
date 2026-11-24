@@ -83,6 +83,15 @@ QtObject {
               { key: "activeColor",   type: "color",  label: "Active colour",    default: "#D4AF37" },
               { key: "occupiedColor", type: "color",  label: "Occupied colour",  default: "#E6D5B8" }
           ] },
+        { source: "TodoWidget.qml",              name: "To-Do list",            group: "Outer Wilds",  designW: 280,
+          settings: [
+              { key: "showDone", type: "toggle", label: "Show completed", default: true },
+              { key: "font",     type: "font",   label: "Font",           default: "monospace" }
+          ] },
+        { source: "CalculatorWidget.qml",        name: "Calculator",            group: "Outer Wilds",  designW: 236,
+          settings: [
+              { key: "font",     type: "font",   label: "Font",           default: "monospace" }
+          ] },
         { source: "NotesWidget.qml",             name: "Notes",                 group: "Outer Wilds",  designW: 280,
           settings: [
               { key: "placeholder", type: "text",   label: "Placeholder",     default: "quick notes..." },
@@ -129,6 +138,7 @@ QtObject {
           ] },
         { source: "WeatherWidget.qml",           name: "Weather",               group: "Outer Wilds", designW: 280, title: "WEATHER",
           settings: [
+              { key: "autoLocation", type: "toggle", label: "Auto-detect location", default: true },
               { key: "lat",         type: "number", label: "Latitude",          min: -90, max: 90, step: 0.01, default: 18.91 },
               { key: "lon",         type: "number", label: "Longitude",         min: -180, max: 180, step: 0.01, default: 72.81 },
               { key: "unit",        type: "choice", label: "Temperature unit",  choices: [{ value: "C", label: "°C" }, { value: "F", label: "°F" }], default: "C" },
@@ -473,6 +483,13 @@ QtObject {
     // Same entry shape as builtinCatalog, plus `default` (size / orbit / show) and `settings` (the schema the panel draws).
     // Shared options applied automatically to every widget in a pack (merged after widget-specific settings)
     readonly property var groupSettings: ({
+        "Outer Wilds": [
+            { key: "planetTheme",  type: "toggle", label: "Use planet colour scheme", default: true },
+            { key: "bgOpacity",    type: "number", label: "Card fill opacity", min: 0.2, max: 1.0, step: 0.05, default: 1.0 },
+            { key: "showHeader",   type: "toggle", label: "Show header bar", default: true },
+            { key: "showGrid",     type: "toggle", label: "Subtle dot-grid layer", default: true },
+            { key: "contentScale", type: "number", label: "Inner scale", min: 0.7, max: 1.3, step: 0.05, default: 1.0 }
+        ],
         "Glyph": [
             { key: "bgOpacity",    type: "number", label: "Card fill opacity", min: 0.0, max: 1.0, step: 0.05, default: 1.0 },
             { key: "borderWidth",  type: "number", label: "Border width",      min: 0, max: 4, step: 1, unit: "px", default: 1 },
@@ -510,8 +527,8 @@ QtObject {
     function settingsSchema(source) {
         const c = catalogEntry(source);
         if (!c) return [];
-        const own = Array.isArray(c.settings) ? c.settings : [];
-        const grp = (c.group && Array.isArray(groupSettings[c.group])) ? groupSettings[c.group] : [];
+        const own = (c.settings && c.settings.length > 0) ? c.settings : [];
+        const grp = (c.group && groupSettings[c.group] && groupSettings[c.group].length > 0) ? groupSettings[c.group] : [];
         if (grp.length === 0) return own;
         if (own.length === 0) return grp;
         const seen = {}, out = [];
@@ -543,10 +560,41 @@ QtObject {
     property bool showReticles: true         // hover and lock reticles (CameraRig)
     property int fpsIdle: 30                 // idle frame cap: 15, 30, 60, or 0 = off (CameraRig)
     property int fpsActive: 0                // active frame cap: 30, 60, 90, 120, or 0 = monitor rate (CameraRig)
+    // ---- performance presets (Control Centre > OPTIONS > Rendering & performance) ----
+    // A preset just sets four knobs (fpsIdle, bakeW, sensorMs, planetScale); `perfMode` is worked out from them, so touching
+    // any knob by hand shows "custom" and nothing extra needs saving.
+    property int sensorMs: 2000              // sensor poll interval: 2000, 3000, 5000 (Sensors)
+    property real planetScale: 1.0           // big-planet render scale: 1.0 = native and pixel-identical; lower = cheaper, softer (PlanetShader)
+    property bool autoBattery: false         // use the Performance values while on battery (Sensors reads the battery state)
+    property bool onBattery: false           // runtime only, never saved
+    property string lastPreset: ""           // runtime: the layout preset `nextPreset` loaded last
+    property bool showDiag: false            // on-screen scene FPS / CPU / GPU readout (CameraRig)
+    property string backupMsg: ""            // result line of the last BACKUP click (runtime)
+    readonly property var perfPresets: ({
+        quality:     { fpsIdle: 30, bakeW: 1024, sensorMs: 2000, planetScale: 1.0 },
+        balanced:    { fpsIdle: 20, bakeW: 1024, sensorMs: 3000, planetScale: 0.85 },
+        performance: { fpsIdle: 15, bakeW: 512,  sensorMs: 5000, planetScale: 0.6 }
+    })
+    readonly property string perfMode: {
+        for (const nm in perfPresets) {
+            const pr = perfPresets[nm];
+            if (pr.fpsIdle === fpsIdle && pr.bakeW === bakeW && pr.sensorMs === sensorMs && Math.abs(pr.planetScale - planetScale) < 1e-6) return nm;
+        }
+        return "custom";
+    }
+    // what the scene actually uses: the Performance values while "on battery" is active, else the saved knobs
+    readonly property bool _batt: autoBattery && onBattery
+    readonly property string effMode: _batt ? "performance" : perfMode
+    readonly property int effFpsIdle: _batt ? perfPresets.performance.fpsIdle : fpsIdle
+    readonly property int effBakeW: _batt ? perfPresets.performance.bakeW : bakeW
+    readonly property int effSensorMs: _batt ? perfPresets.performance.sensorMs : sensorMs
+    readonly property real effPlanetScale: _batt ? perfPresets.performance.planetScale : planetScale
+    readonly property int effHudMs: effMode === "performance" ? 66 : 33    // SatelliteHUD's two motion timers
     property bool spaceDrift: true           // 6-DOF space drift enabled (CameraRig)
     property real driftCruise: 80.0          // drift coasting speed (CameraRig)
     property real lockOrbitK: 6.5            // planet lock-on orbit distance multiplier (CameraRig)
     property real lookSens: 1.0              // mouse look/orbit sensitivity multiplier (CameraRig)
+    property real uiScrollSens: 1.0          // Control Centre scroll speed multiplier (SettingsPanel)
     property real defaultTimeScale: 1.0      // default loop speed multiplier (CameraRig)
     property real hudOpacity: 1.0            // SatelliteHUD opacity (0.1..1.0)
     property real hudScale: 1.0              // SatelliteHUD scale (0.5..1.5)
@@ -564,6 +612,15 @@ QtObject {
     property bool widgetHoldOnHover: true    // pause widget orbit while hovered
     property bool widgetBrackets: true       // show corner brackets on WidgetCards
     // ---- pack-wide theme overrides (blank = pack default) ----
+    property string nativeBg: ""
+    property string nativeSurface: ""
+    property string nativeText: ""
+    property string nativeDim: ""
+    property string nativeAccent: ""
+    property string nativeFont: ""
+    property bool nativePlanetTheme: true
+    property bool nativeLayers: true
+    property real nativeOpacity: 0.94
     property string glyphBg: ""
     property string glyphBorder: ""
     property string glyphOff: ""
@@ -619,11 +676,13 @@ QtObject {
         showOrbits: true, orbitOpacity: 1.0, orbitWidth: 1.2,
         showLabels: true, labelSize: 1.0, labelDist: 1500,
         showReticles: true, reticleOpacity: 1.0, reticleWidth: 1.0,
-        shrinkFar: true, bakeW: 1024, fpsIdle: 30, fpsActive: 0,
-        spaceDrift: true, driftCruise: 80.0, lockOrbitK: 6.5, lookSens: 1.0, defaultTimeScale: 1.0,
+        shrinkFar: true, bakeW: 1024, fpsIdle: 30, fpsActive: 0, sensorMs: 2000, planetScale: 1.0, autoBattery: false, showDiag: false,
+        spaceDrift: true, driftCruise: 80.0, lockOrbitK: 6.5, lookSens: 1.0, uiScrollSens: 1.0, defaultTimeScale: 1.0,
         widgetOpacity: 1.0, widgetRadius: 6.0, widgetAccent: "#D4AF37",
         widgetHoldOnHover: true, widgetBrackets: true,
         pinDimEnabled: true, pinDimScope: "planet", pinDimOpacity: 0.25, pinScale: 1.2, pinOutlineColor: "#D4AF37",
+        nativeBg: "", nativeSurface: "", nativeText: "", nativeDim: "", nativeAccent: "", nativeFont: "",
+        nativePlanetTheme: true, nativeLayers: true, nativeOpacity: 0.94,
         glyphBg: "", glyphBorder: "", glyphOff: "", glyphFg: "", glyphAccent: "", glyphFont: "",
         lucidBg: "", lucidText: "", lucidAccent: "", lucidFont: "",
         serpSurface: "", serpText: "", serpAccent: "", serpOpacity: 0.92, serpRadius: 8, serpFont: ""
@@ -631,8 +690,23 @@ QtObject {
     property string focusPlanet: ""          // the planet the camera is targeting / locked on ("" = none); set by KeyHost
     property string panelTab: "widgets"      // settings panel tab: widgets | keys | options
     property bool capturingKeys: false       // the panel is recording a key: HyprIpc parks Hyprland's own binds so Super+... reaches it
+    property var _typingOwners: ({})
+    property bool widgetTyping: false        // true while a widget text field (Notes / To-Do) has keyboard focus
+    function setWidgetTyping(ownerId, active) {
+        const m = {};
+        for (const k in _typingOwners) if (_typingOwners[k]) m[k] = true;
+        if (active) m[ownerId] = true; else delete m[ownerId];
+        _typingOwners = m;
+        const next = Object.keys(m).length > 0;
+        if (widgetTyping !== next) widgetTyping = next;
+    }
+    function clearWidgetTyping() {
+        _typingOwners = ({});
+        if (widgetTyping) widgetTyping = false;
+    }
 
     signal saveRequested(string text)
+    signal backupRequested()                 // WidgetConfigStore copies widgets.json into widgets-backups/
     signal launcherRequested()               // the small app-launcher widget was clicked: LauncherWindow opens the big one
 
     property string _lastText: ""
@@ -667,6 +741,24 @@ QtObject {
             interloper: "#A7D8E8", quantum_moon: "#C5B4E3"
         };
         return map[id] || "#D4AF37";
+    }
+
+    function planetTheme(id) {
+        const themes = {
+            sun:             { bg: "#EE110D08", surface: "#FF19130B", accent: "#FFB347", cream: "#F2DFBE", dim: "#A68C62", border: "#38FFB347" },
+            sun_station:     { bg: "#EE120B09", surface: "#FF1B110D", accent: "#E8883A", cream: "#F0D8C2", dim: "#9E785D", border: "#38E8883A" },
+            ash_twin:        { bg: "#EE100E0A", surface: "#FF18150F", accent: "#D4B483", cream: "#EAE0CC", dim: "#94876E", border: "#34D4B483" },
+            ember_twin:      { bg: "#EE120B09", surface: "#FF1B110E", accent: "#D97248", cream: "#EED8CA", dim: "#9C7462", border: "#36D97248" },
+            timber_hearth:   { bg: "#EE0A0F0C", surface: "#FF111915", accent: "#72B886", cream: "#E2E8DC", dim: "#789180", border: "#3472B886" },
+            attlerock:       { bg: "#EE0C0D10", surface: "#FF14161A", accent: "#B4BCC8", cream: "#E4E6EA", dim: "#828894", border: "#32B4BCC8" },
+            brittle_hollow:  { bg: "#EE0A0C14", surface: "#FF121523", accent: "#7E96CC", cream: "#DCE3F2", dim: "#7482A3", border: "#367E96CC" },
+            hollows_lantern: { bg: "#EE130A0A", surface: "#FF1E100F", accent: "#E86245", cream: "#F2D8D0", dim: "#A16D62", border: "#38E86245" },
+            giants_deep:     { bg: "#EE081010", surface: "#FF0F1B1B", accent: "#5CC2A8", cream: "#D9ECE8", dim: "#6E968E", border: "#345CC2A8" },
+            dark_bramble:    { bg: "#EE0A0E0C", surface: "#FF121815", accent: "#88A890", cream: "#DFE6E0", dim: "#76877B", border: "#3288A890" },
+            interloper:      { bg: "#EE080E12", surface: "#FF101920", accent: "#A0D8EA", cream: "#E0F0F5", dim: "#7595A1", border: "#36A0D8EA" },
+            quantum_moon:    { bg: "#EE0D0B13", surface: "#FF161321", accent: "#C5B4E3", cream: "#EAE4F5", dim: "#8D82A3", border: "#36C5B4E3" }
+        };
+        return themes[id] || { bg: "#EE0B0C10", surface: "#FF13151C", accent: widgetAccent, cream: "#E6D5B8", dim: "#8A7F66", border: "#2EE6D5B8" };
     }
 
     function widgetName(def) {
@@ -1052,7 +1144,7 @@ QtObject {
     function setShowOrbits(v) { if (showOrbits === v) return; showOrbits = v; _bump(true); }
     function setShowLabels(v) { if (showLabels === v) return; showLabels = v; _bump(true); }
     function setShowReticles(v) { if (showReticles === v) return; showReticles = v; _bump(true); }
-    function setFpsIdle(v) { const n = Number(v); if (n !== 0 && n !== 15 && n !== 30 && n !== 60) return; if (fpsIdle === n) return; fpsIdle = n; _bump(true); }
+    function setFpsIdle(v) { const n = Number(v); if (n !== 0 && n !== 15 && n !== 20 && n !== 30 && n !== 60) return; if (fpsIdle === n) return; fpsIdle = n; _bump(true); }
     function setHudOpacity(v) { const n = Math.max(0.1, Math.min(1.0, Number(v))); if (!isFinite(n) || hudOpacity === n) return; hudOpacity = n; _bump(true); }
     function setHudScale(v) { const n = Math.max(0.5, Math.min(1.5, Number(v))); if (!isFinite(n) || hudScale === n) return; hudScale = n; _bump(true); }
     function setOrbitOpacity(v) { const n = Math.max(0.1, Math.min(1.0, Number(v))); if (!isFinite(n) || orbitOpacity === n) return; orbitOpacity = n; _bump(true); }
@@ -1069,6 +1161,8 @@ QtObject {
     function setWidgetHoldOnHover(v) { if (widgetHoldOnHover === v) return; widgetHoldOnHover = v; _bump(true); }
     function setWidgetBrackets(v) { if (widgetBrackets === v) return; widgetBrackets = v; _bump(true); }
     function setPackTheme(key, val) {
+        if (key === "nativeOpacity") { const n = Math.max(0.2, Math.min(1.0, Number(val))); if (!isFinite(n) || nativeOpacity === n) return; nativeOpacity = n; _bump(true); return; }
+        if (key === "nativePlanetTheme" || key === "nativeLayers") { const b = val === true; if (root[key] === b) return; root[key] = b; _bump(true); return; }
         if (key === "serpOpacity") { const n = Math.max(0.1, Math.min(1.0, Number(val))); if (!isFinite(n) || serpOpacity === n) return; serpOpacity = n; _bump(true); return; }
         if (key === "serpRadius") { const n = Math.max(0, Math.min(28, Number(val))); if (!isFinite(n) || serpRadius === n) return; serpRadius = n; _bump(true); return; }
         const s = String(val || "").trim();
@@ -1077,10 +1171,70 @@ QtObject {
         _bump(true);
     }
     function resetPackThemes() {
+        nativeBg = ""; nativeSurface = ""; nativeText = ""; nativeDim = ""; nativeAccent = ""; nativeFont = "";
+        nativePlanetTheme = true; nativeLayers = true; nativeOpacity = 0.94;
         glyphBg = ""; glyphBorder = ""; glyphOff = ""; glyphFg = ""; glyphAccent = ""; glyphFont = "";
         lucidBg = ""; lucidText = ""; lucidAccent = ""; lucidFont = "";
         serpSurface = ""; serpText = ""; serpAccent = ""; serpOpacity = 0.92; serpRadius = 8; serpFont = "";
         _bump(true);
+    }
+
+    function setPerfMode(name) {
+        const p = perfPresets[name];
+        if (!p) return;
+        fpsIdle = p.fpsIdle; bakeW = p.bakeW; sensorMs = p.sensorMs; planetScale = p.planetScale;
+        _bump(true);
+    }
+    function cyclePerfMode() {
+        const order = ["quality", "balanced", "performance"];
+        setPerfMode(order[(order.indexOf(perfMode) + 1) % order.length]);   // "custom" (index -1) goes to quality
+        return perfMode;
+    }
+    function setOnBattery(v) { if (onBattery !== v) onBattery = v; }      // runtime: not saved
+    function setShowDiag(v) { setUiOpt("showDiag", v === true); }
+
+    // ---------------- placement (the add-widget list) ----------------
+    // where each catalog file currently sits: [{ id, host }]  (the picker dims widgets that are already on a planet)
+    function placesOfSource(source) {
+        const all = entries(), out = [];
+        for (let i = 0; i < all.length; i++) if (all[i].source === source) out.push({ id: all[i].id, host: all[i].host });
+        return out;
+    }
+    // moves an existing widget of this file to `host` instead of making a duplicate; returns its id ("" = none to move)
+    function moveHere(source, host) {
+        const all = entries();
+        for (let i = 0; i < all.length; i++)
+            if (all[i].source === source && all[i].host !== host) { setField(all[i].id, "host", host); previewId = all[i].id; return all[i].id; }
+        return "";
+    }
+    // every widget that sits on this planet now, or started there, goes back to its defaults; widgets added from the panel
+    // that sit on it are deleted. Returns how many widgets were touched.
+    function resetPlanet(planet) {
+        const o = _clone(overrides);
+        let n = 0;
+        for (let i = 0; i < defaults.length; i++) {
+            const d = defaults[i], ov = o[d.id];
+            const host = (ov && ov.host !== undefined) ? ov.host : d.host;
+            if ((host === planet || d.host === planet) && ov) { delete o[d.id]; n++; }
+        }
+        const pm = _clone(pinnedIds);
+        let pinChanged = false;
+        const keep = [];
+        for (let i = 0; i < extras.length; i++) {
+            const x = extras[i], ov = o[x.id];
+            const host = (ov && ov.host !== undefined) ? ov.host : x.host;
+            if (host === planet) {
+                delete o[x.id];
+                if (pm[x.id]) { delete pm[x.id]; pinChanged = true; }
+                n++;
+            } else keep.push(x);
+        }
+        overrides = o;
+        extras = keep;
+        if (pinChanged) { pinnedIds = pm; pinnedCount = _recountPins(pm); }
+        previewId = "";
+        _bump(true);
+        return n;
     }
 
     function setUiOpt(key, val) {
@@ -1092,10 +1246,14 @@ QtObject {
             if (key === "pinDimOpacity") v = Math.max(0.05, Math.min(1.0, v));
             else if (key === "pinScale") v = Math.max(1.0, Math.min(2.5, v));
             else if (key === "pinDimScope") { if (v !== "planet" && v !== "everywhere") return; }
+            else if (key === "fpsIdle") { v = Math.round(v); if (v !== 0 && v !== 15 && v !== 20 && v !== 30 && v !== 60) return; }
+            else if (key === "sensorMs") { v = Math.round(v); if (v !== 2000 && v !== 3000 && v !== 5000) return; }
+            else if (key === "planetScale") { if (!(v > 0.3) || v > 1.0) return; }
             else if (key === "fpsActive") { v = Math.round(v); if (v !== 0 && v !== 30 && v !== 60 && v !== 90 && v !== 120) return; }
             else if (key === "driftCruise") v = Math.max(10, v);
             else if (key === "lockOrbitK") v = Math.max(2.2, v);
             else if (key === "lookSens") v = Math.max(0.1, v);
+            else if (key === "uiScrollSens") v = Math.max(0.2, Math.min(5.0, v));
             else if (key === "defaultTimeScale") v = Math.max(0.1, v);
             else if (key === "hudGaugeScale" || key === "hudGlobeScale" || key === "hudThrustScale") v = Math.max(0.5, Math.min(1.8, v));
         } else if (typeof uiDefaults[key] === "boolean") {
@@ -1124,8 +1282,8 @@ QtObject {
     function _uiDict() {
         return {
             loopPanel: showLoopPanel, shrinkFar: shrinkFar, bakeW: bakeW, hud: showHud, orbits: showOrbits,
-            labels: showLabels, reticles: showReticles, fpsIdle: fpsIdle, fpsActive: fpsActive,
-            spaceDrift: spaceDrift, driftCruise: driftCruise, lockOrbitK: lockOrbitK, lookSens: lookSens, defaultTimeScale: defaultTimeScale, hudOpacity: hudOpacity, hudScale: hudScale,
+            labels: showLabels, reticles: showReticles, fpsIdle: fpsIdle, fpsActive: fpsActive, sensorMs: sensorMs, planetScale: planetScale, autoBattery: autoBattery, showDiag: showDiag,
+            spaceDrift: spaceDrift, driftCruise: driftCruise, lockOrbitK: lockOrbitK, lookSens: lookSens, uiScrollSens: uiScrollSens, defaultTimeScale: defaultTimeScale, hudOpacity: hudOpacity, hudScale: hudScale,
             hudShowGauges: hudShowGauges, hudShowAstronaut: hudShowAstronaut, hudShowGaugeLabels: hudShowGaugeLabels,
             hudGaugeScale: hudGaugeScale, hudShowGlobe: hudShowGlobe, hudShowGlobeStand: hudShowGlobeStand,
             hudGlobeScale: hudGlobeScale, hudGlobeColor: hudGlobeColor, hudShowThrust: hudShowThrust,
@@ -1136,6 +1294,9 @@ QtObject {
             loopPanelScale: loopPanelScale, widgetOpacity: widgetOpacity, widgetRadius: widgetRadius,
             widgetAccent: widgetAccent, widgetHoldOnHover: widgetHoldOnHover, widgetBrackets: widgetBrackets,
             pinDimEnabled: pinDimEnabled, pinDimScope: pinDimScope, pinDimOpacity: pinDimOpacity, pinScale: pinScale, pinOutlineColor: pinOutlineColor,
+            nativeBg: nativeBg, nativeSurface: nativeSurface, nativeText: nativeText, nativeDim: nativeDim,
+            nativeAccent: nativeAccent, nativeFont: nativeFont, nativePlanetTheme: nativePlanetTheme,
+            nativeLayers: nativeLayers, nativeOpacity: nativeOpacity,
             glyphBg: glyphBg, glyphBorder: glyphBorder, glyphOff: glyphOff, glyphFg: glyphFg,
             glyphAccent: glyphAccent, glyphFont: glyphFont, lucidBg: lucidBg, lucidText: lucidText,
             lucidAccent: lucidAccent, lucidFont: lucidFont, serpSurface: serpSurface, serpText: serpText,
@@ -1154,13 +1315,18 @@ QtObject {
         showLabels = u.labels !== false;
         showReticles = u.reticles !== false;
         const fi = u.fpsIdle !== undefined ? Number(u.fpsIdle) : 30;
-        fpsIdle = (fi === 0 || fi === 15 || fi === 30 || fi === 60) ? fi : 30;
+        fpsIdle = (fi === 0 || fi === 15 || fi === 20 || fi === 30 || fi === 60) ? fi : 30;
+        sensorMs = (u.sensorMs === 3000 || u.sensorMs === 5000) ? u.sensorMs : 2000;
+        planetScale = (typeof u.planetScale === "number" && u.planetScale > 0.3 && u.planetScale <= 1.0) ? u.planetScale : 1.0;
+        autoBattery = u.autoBattery === true;
+        showDiag = u.diag === true || u.showDiag === true;
         const fa = u.fpsActive !== undefined ? Number(u.fpsActive) : 0;
         fpsActive = (fa === 0 || fa === 30 || fa === 60 || fa === 90 || fa === 120) ? fa : 0;
         spaceDrift = u.spaceDrift !== false;
         driftCruise = typeof u.driftCruise === 'number' && u.driftCruise >= 10 ? u.driftCruise : 80.0;
         lockOrbitK = typeof u.lockOrbitK === 'number' && u.lockOrbitK >= 2.2 ? u.lockOrbitK : 6.5;
         lookSens = typeof u.lookSens === 'number' && u.lookSens >= 0.1 ? u.lookSens : 1.0;
+        uiScrollSens = typeof u.uiScrollSens === 'number' && u.uiScrollSens >= 0.2 ? u.uiScrollSens : 1.0;
         defaultTimeScale = typeof u.defaultTimeScale === 'number' && u.defaultTimeScale >= 0.1 ? u.defaultTimeScale : 1.0;
         hudOpacity = typeof u.hudOpacity === "number" ? u.hudOpacity : 1.0;
         hudScale = typeof u.hudScale === "number" ? u.hudScale : 1.0;
@@ -1197,6 +1363,15 @@ QtObject {
         pinDimOpacity = typeof u.pinDimOpacity === "number" ? u.pinDimOpacity : 0.25;
         pinScale = typeof u.pinScale === "number" ? u.pinScale : 1.2;
         pinOutlineColor = typeof u.pinOutlineColor === "string" && u.pinOutlineColor !== "" ? u.pinOutlineColor : "#D4AF37";
+        nativeBg = typeof u.nativeBg === "string" ? u.nativeBg : "";
+        nativeSurface = typeof u.nativeSurface === "string" ? u.nativeSurface : "";
+        nativeText = typeof u.nativeText === "string" ? u.nativeText : "";
+        nativeDim = typeof u.nativeDim === "string" ? u.nativeDim : "";
+        nativeAccent = typeof u.nativeAccent === "string" ? u.nativeAccent : "";
+        nativeFont = typeof u.nativeFont === "string" ? u.nativeFont : "";
+        nativePlanetTheme = u.nativePlanetTheme !== false;
+        nativeLayers = u.nativeLayers !== false;
+        nativeOpacity = typeof u.nativeOpacity === "number" ? u.nativeOpacity : 0.94;
         glyphBg = typeof u.glyphBg === "string" ? u.glyphBg : "";
         glyphBorder = typeof u.glyphBorder === "string" ? u.glyphBorder : "";
         glyphOff = typeof u.glyphOff === "string" ? u.glyphOff : "";
@@ -1256,6 +1431,15 @@ QtObject {
         if (!presets || !presets[name]) return false;
         _applySnapshot(presets[name]);
         return true;
+    }
+
+    function nextPreset() {
+        const names = presetNames();
+        if (names.length === 0) return "";
+        const cur = names.indexOf(lastPreset);
+        const n = names[(cur + 1) % names.length];
+        if (loadPreset(n)) lastPreset = n;
+        return n;
     }
 
     function deletePreset(name) {

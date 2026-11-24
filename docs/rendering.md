@@ -65,6 +65,23 @@ While you are interacting after 1288 s, the loop is frozen so the supernova cann
 * Held keys are tracked in `actDown` (action → bool). Input comes from `KeyHost` and the key handlers in `CameraRig`.
 * Known bug left on purpose: double-click teleport is flaky; `Alt`+click is the dependable fly-in.
 
+## Performance presets (Control Centre > OPTIONS > Rendering & performance)
+
+`WidgetConfig.perfMode` = quality | balanced | performance | custom. A preset only sets four knobs (`fpsIdle`, `bakeW`, `sensorMs`,
+`planetScale`); touching a knob by hand makes the mode `custom`. Consumers read the `eff*` properties (`effFpsIdle`, `effBakeW`,
+`effSensorMs`, `effPlanetScale`, `effHudMs`), which switch to the Performance values while "Performance preset while on battery" is on
+and the battery is discharging (`Sensors` polls `/sys/class/power_supply/BAT*/status` every 30 s, only when that option is on).
+
+| | idle fps | bake | sensors | big-planet render scale |
+|---|---|---|---|---|
+| quality (= old defaults, pixel-identical) | 30 | 1024 | 2 s | 100% |
+| balanced | 20 | 1024 | 3 s | 85% |
+| performance | 15 | 512 | 5 s | 60% |
+
+Render scale < 100% draws a planet quad wider than 240 px into a smaller `layer` texture (rounded to 32 px) and stretches it.
+At 100% the layer is off. Control: `ow perf set|cycle|diag|status` (IPC target `perf`), keys `perf` / `diag` on the KEYS tab.
+The diagnostics box (top right) shows scene frames per second (frames the scene actually worked on), the cap, and system CPU / GPU.
+
 ## Performance model
 
 * Nothing runs when the scene is hidden: `active = NoctaliaBridge.desktopVisible`.

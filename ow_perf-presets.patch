@@ -1,0 +1,927 @@
+diff --git a/bin/ow b/bin/ow
+index 85154ad..b377af1 100755
+--- a/bin/ow
++++ b/bin/ow
+@@ -4,8 +4,20 @@ CFG=outerwilds
+ case "$1" in
+   start)   pgrep -f "qs.*-c $CFG" >/dev/null && { echo "already running"; exit 0; }
+            setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo started ;;
+-  stop)    qs kill -c "$CFG" ;;
+-  restart) qs kill -c "$CFG" 2>/dev/null; sleep 1; setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo restarted ;;
++  supervise)   # autostart this one: starts the shell and restarts it if it crashes (gives up after 5 quick crashes in a row)
++           supervised && { echo "already supervising"; exit 0; }
++           setsid -f sh -c 'echo $$ > "$1"; fails=0
++             while :; do
++               t=$(date +%s); qs -c "$2" >/dev/null 2>&1; rc=$?
++               [ "$rc" -eq 0 ] && break
++               if [ $(( $(date +%s) - t )) -lt 10 ]; then fails=$((fails + 1)); else fails=0; fi
++               [ "$fails" -ge 5 ] && break
++               sleep 2
++             done; rm -f "$1"' sh "$PIDF" "$CFG" && echo supervising ;;
++  stop)    stop_supervisor; qs kill -c "$CFG" ;;
++  restart) if supervised; then S=1; fi; stop_supervisor; qs kill -c "$CFG" 2>/dev/null; sleep 1
++           if [ -n "$S" ]; then "$0" supervise; else setsid -f qs -c "$CFG" >/dev/null 2>&1 && echo restarted; fi ;;
++  perf)    shift; case "$1" in set|cycle|diag|status) qs -c "$CFG" ipc call perf "$@" ;; *) echo "usage: ow perf set quality|balanced|performance | cycle | diag | status"; exit 1 ;; esac ;;
+   status)  qs -c "$CFG" ipc call system status ;;
+   log)     qs -c "$CFG" log ;;
+   rescan)  qs -c "$CFG" ipc call widgets rescan ;;
+diff --git a/core/CameraRig.qml b/core/CameraRig.qml
+index 506de8d..ff4d2ae 100755
+--- a/core/CameraRig.qml
++++ b/core/CameraRig.qml
+@@ -33,7 +33,7 @@ Item {
+     // While nothing is moving (no keys, no drag, camera settled, no scope) the scene only needs to redraw at
+     // fpsIdle. Skipped frames change nothing, so Qt Quick renders nothing and the GPU sits idle.
+     // Any input or camera motion runs at full display rate. fpsIdle: 0 = off (always full rate).
+-    property real fpsIdle: WidgetConfig.fpsIdle
++    property real fpsIdle: WidgetConfig.effFpsIdle
+     property real fpsActive: WidgetConfig.fpsActive
+     property real _acc: 0.0
+     function _heldAny() { for (const k in actDown) if (actDown[k] === true) return true; return false; }
+@@ -796,6 +796,7 @@ Item {
+             if (mouseArea.containsMouse) mouseArea.updateHover(mouseArea.mouseX, mouseArea.mouseY);
+ 
+             root.lastDt = dt;
++            root._diagFrames++;
+             root.frameUpdated();
+         }
+     }
+@@ -1367,6 +1368,41 @@ Item {
+         anchors.fill: parent
+     }
+ 
++    // --- DIAGNOSTICS: scene frames per second + system CPU / GPU (Control Centre > OPTIONS, the "diag" key, or `ipc call perf diag`) ---
++    // "SCENE" counts frames the scene actually worked on (the idle cap skips the rest), so it shows the cap working.
++    // CPU / GPU are whole-system numbers from the HUD feed, not just this shell.
++    property int _diagFrames: 0
++    property int diagFps: 0
++    Timer {
++        interval: 1000
++        repeat: true
++        running: WidgetConfig.showDiag && root.active
++        onTriggered: { root.diagFps = root._diagFrames; root._diagFrames = 0; }
++    }
++    Rectangle {
++        visible: WidgetConfig.showDiag
++        z: 32000
++        anchors.top: parent.top
++        anchors.right: parent.right
++        anchors.margins: 18
++        width: diagText.implicitWidth + 24
++        height: diagText.implicitHeight + 16
++        radius: 6
++        color: "#CC07080C"
++        border.color: root.colGold
++        border.width: 1
++        Text {
++            id: diagText
++            anchors.centerIn: parent
++            color: root.colCream
++            font.family: "monospace"
++            font.pixelSize: 12
++            text: "SCENE " + root.diagFps + " fps (idle cap " + (root.fpsIdle > 0 ? root.fpsIdle : "off") + ")\n"
++                + "MODE  " + WidgetConfig.effMode.toUpperCase() + (WidgetConfig.autoBattery && WidgetConfig.onBattery ? " (battery)" : "") + "\n"
++                + "CPU   " + Math.round(HudData.cpu * 100) + "%   GPU " + Math.round(HudData.battery * 100) + "%   (system)"
++        }
++    }
++
+     // --- KEYS: map / rumor / edit / key list / loop panel / signalscope (Keybinds.qml + the Control Centre's KEYS tab) ---
+     KeyHost { rig: root }
+ 
+diff --git a/core/HyprIpc.qml b/core/HyprIpc.qml
+index 9c01828..dbdf1c3 100644
+--- a/core/HyprIpc.qml
++++ b/core/HyprIpc.qml
+@@ -6,6 +6,7 @@ import "../"
+ // Global-bind targets for Hyprland (binds live in ~/.config/hypr/outerwilds.lua):
+ //   qs -c outerwilds ipc call map toggle|show|hide
+ //   qs -c outerwilds ipc call rumor toggle|show|hide
++//   qs -c outerwilds ipc call perf set|cycle|diag|status      qs -c outerwilds ipc call layout next|load|list
+ //   qs -c outerwilds ipc call scene status          (prints what the bridge sees; handy for debugging)
+ // The overlays still pause the rig themselves (MapHost / RumorMap watch MapData.open / RumorData.open).
+ // These work without keyboard focus, unlike the in-scene N / L / Q shortcuts.
+@@ -51,6 +52,23 @@ Scope {
+         }
+     }
+ 
++    // qs -c outerwilds ipc call perf set quality|balanced|performance   |   perf cycle   |   perf diag   |   perf status
++    IpcHandler {
++        target: "perf"
++        function set(mode: string): string { WidgetConfig.setPerfMode(mode); return WidgetConfig.perfMode; }
++        function cycle(): string { return WidgetConfig.cyclePerfMode(); }
++        function diag(): void { WidgetConfig.setShowDiag(!WidgetConfig.showDiag); }
++        function status(): string { return WidgetConfig.effMode + (WidgetConfig.perfMode === "custom" ? " (custom)" : ""); }
++    }
++
++    // qs -c outerwilds ipc call layout next   |   layout load <name>   |   layout list      (the saved widget layout presets)
++    IpcHandler {
++        target: "layout"
++        function next(): string { return WidgetConfig.nextPreset(); }
++        function load(name: string): bool { return WidgetConfig.loadPreset(name); }
++        function list(): string { return WidgetConfig.presetNames().join(", "); }
++    }
++
+     IpcHandler {
+         target: "scene"
+         function status(): string {
+diff --git a/core/KeyHost.qml b/core/KeyHost.qml
+index 1f048b6..f686e66 100644
+--- a/core/KeyHost.qml
++++ b/core/KeyHost.qml
+@@ -46,6 +46,24 @@ Item {
+         autoRepeat: false
+         onActivated: WidgetConfig.launcherRequested()
+     }
++    Shortcut {
++        sequence: Keybinds.seq("perf")
++        enabled: host.free && Keybinds.seq("perf") !== ""
++        autoRepeat: false
++        onActivated: WidgetConfig.cyclePerfMode()
++    }
++    Shortcut {
++        sequence: Keybinds.seq("diag")
++        enabled: host.free && Keybinds.seq("diag") !== ""
++        autoRepeat: false
++        onActivated: WidgetConfig.setShowDiag(!WidgetConfig.showDiag)
++    }
++    Shortcut {
++        sequence: Keybinds.seq("layout")
++        enabled: host.free && Keybinds.seq("layout") !== ""
++        autoRepeat: false
++        onActivated: WidgetConfig.nextPreset()
++    }
+     Shortcut {
+         sequence: Keybinds.seq("hud")
+         enabled: host.free
+diff --git a/data/Keybinds.qml b/data/Keybinds.qml
+index 96c0c8a..1e54606 100644
+--- a/data/Keybinds.qml
++++ b/data/Keybinds.qml
+@@ -35,6 +35,9 @@ QtObject {
+         { id: "keys",      group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Key list",             hint: "open this panel on the KEYS tab",   def: "F1" },
+         { id: "hud",       group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Loop / speed panel",   hint: "show / hide the bottom-right box",  def: "H" },
+         { id: "launcher",  group: gAnywhere, ctx: "all",   kind: "shortcut", label: "App launcher",         hint: "open the big launcher (no key yet)", def: "" },
++        { id: "perf",      group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Performance preset",   hint: "cycle Quality / Balanced / Performance (no key yet)", def: "" },
++        { id: "diag",      group: gAnywhere, ctx: "all",   kind: "shortcut", label: "FPS / CPU readout",    hint: "show / hide the diagnostics box (no key yet)", def: "" },
++        { id: "layout",    group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Next widget layout",   hint: "switch to the next saved layout preset (no key yet)", def: "" },
+         { id: "scope",     group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Signalscope",          hint: "equip / stow",                      def: "Q", scopeKey: "toggle" },
+ 
+         { id: "fwd",       group: gFlight,   ctx: "scene", kind: "key",      label: "Forward",              hint: "zoom in while locked on a planet",  def: "W" },
+diff --git a/data/Sensors.qml b/data/Sensors.qml
+index f076ec9..634d97d 100644
+--- a/data/Sensors.qml
++++ b/data/Sensors.qml
+@@ -26,7 +26,7 @@ Singleton {
+     property real _prevTotal: 0
+ 
+     Timer {
+-        interval: 2000
++        interval: WidgetConfig.effSensorMs
+         running: NoctaliaBridge.desktopVisible
+         repeat: true
+         triggeredOnStart: true
+@@ -142,4 +142,22 @@ Singleton {
+             }
+         }
+     }
++
++    // "On battery -> Performance preset" (Control Centre > OPTIONS). Only polls while that option is on; a desktop PC has no
++    // battery, so the answer is simply "no" there.
++    Timer {
++        interval: 30000
++        running: WidgetConfig.autoBattery && NoctaliaBridge.desktopVisible
++        repeat: true
++        triggeredOnStart: true
++        onTriggered: batteryProc.running = true
++        onRunningChanged: if (!running) WidgetConfig.setOnBattery(false)
++    }
++    Process {
++        id: batteryProc
++        command: ["sh", "-c", "cat /sys/class/power_supply/BAT*/status 2>/dev/null"]
++        stdout: StdioCollector {
++            onStreamFinished: WidgetConfig.setOnBattery(String(text).indexOf("Discharging") >= 0)
++        }
++    }
+ }
+diff --git a/data/WidgetConfig.qml b/data/WidgetConfig.qml
+index e2e8914..ab270ac 100644
+--- a/data/WidgetConfig.qml
++++ b/data/WidgetConfig.qml
+@@ -543,6 +543,36 @@ QtObject {
+     property bool showReticles: true         // hover and lock reticles (CameraRig)
+     property int fpsIdle: 30                 // idle frame cap: 15, 30, 60, or 0 = off (CameraRig)
+     property int fpsActive: 0                // active frame cap: 30, 60, 90, 120, or 0 = monitor rate (CameraRig)
++    // ---- performance presets (Control Centre > OPTIONS > Rendering & performance) ----
++    // A preset just sets four knobs (fpsIdle, bakeW, sensorMs, planetScale); `perfMode` is worked out from them, so touching
++    // any knob by hand shows "custom" and nothing extra needs saving.
++    property int sensorMs: 2000              // sensor poll interval: 2000, 3000, 5000 (Sensors)
++    property real planetScale: 1.0           // big-planet render scale: 1.0 = native and pixel-identical; lower = cheaper, softer (PlanetShader)
++    property bool autoBattery: false         // use the Performance values while on battery (Sensors reads the battery state)
++    property bool onBattery: false           // runtime only, never saved
++    property string lastPreset: ""           // runtime: the layout preset `nextPreset` loaded last
++    property bool showDiag: false            // on-screen scene FPS / CPU / GPU readout (CameraRig)
++    property string backupMsg: ""            // result line of the last BACKUP click (runtime)
++    readonly property var perfPresets: ({
++        quality:     { fpsIdle: 30, bakeW: 1024, sensorMs: 2000, planetScale: 1.0 },
++        balanced:    { fpsIdle: 20, bakeW: 1024, sensorMs: 3000, planetScale: 0.85 },
++        performance: { fpsIdle: 15, bakeW: 512,  sensorMs: 5000, planetScale: 0.6 }
++    })
++    readonly property string perfMode: {
++        for (const nm in perfPresets) {
++            const pr = perfPresets[nm];
++            if (pr.fpsIdle === fpsIdle && pr.bakeW === bakeW && pr.sensorMs === sensorMs && Math.abs(pr.planetScale - planetScale) < 1e-6) return nm;
++        }
++        return "custom";
++    }
++    // what the scene actually uses: the Performance values while "on battery" is active, else the saved knobs
++    readonly property bool _batt: autoBattery && onBattery
++    readonly property string effMode: _batt ? "performance" : perfMode
++    readonly property int effFpsIdle: _batt ? perfPresets.performance.fpsIdle : fpsIdle
++    readonly property int effBakeW: _batt ? perfPresets.performance.bakeW : bakeW
++    readonly property int effSensorMs: _batt ? perfPresets.performance.sensorMs : sensorMs
++    readonly property real effPlanetScale: _batt ? perfPresets.performance.planetScale : planetScale
++    readonly property int effHudMs: effMode === "performance" ? 66 : 33    // SatelliteHUD's two motion timers
+     property bool spaceDrift: true           // 6-DOF space drift enabled (CameraRig)
+     property real driftCruise: 80.0          // drift coasting speed (CameraRig)
+     property real lockOrbitK: 6.5            // planet lock-on orbit distance multiplier (CameraRig)
+@@ -619,7 +649,7 @@ QtObject {
+         showOrbits: true, orbitOpacity: 1.0, orbitWidth: 1.2,
+         showLabels: true, labelSize: 1.0, labelDist: 1500,
+         showReticles: true, reticleOpacity: 1.0, reticleWidth: 1.0,
+-        shrinkFar: true, bakeW: 1024, fpsIdle: 30, fpsActive: 0,
++        shrinkFar: true, bakeW: 1024, fpsIdle: 30, fpsActive: 0, sensorMs: 2000, planetScale: 1.0, autoBattery: false, showDiag: false,
+         spaceDrift: true, driftCruise: 80.0, lockOrbitK: 6.5, lookSens: 1.0, defaultTimeScale: 1.0,
+         widgetOpacity: 1.0, widgetRadius: 6.0, widgetAccent: "#D4AF37",
+         widgetHoldOnHover: true, widgetBrackets: true,
+@@ -633,6 +663,7 @@ QtObject {
+     property bool capturingKeys: false       // the panel is recording a key: HyprIpc parks Hyprland's own binds so Super+... reaches it
+ 
+     signal saveRequested(string text)
++    signal backupRequested()                 // WidgetConfigStore copies widgets.json into widgets-backups/
+     signal launcherRequested()               // the small app-launcher widget was clicked: LauncherWindow opens the big one
+ 
+     property string _lastText: ""
+@@ -1052,7 +1083,7 @@ QtObject {
+     function setShowOrbits(v) { if (showOrbits === v) return; showOrbits = v; _bump(true); }
+     function setShowLabels(v) { if (showLabels === v) return; showLabels = v; _bump(true); }
+     function setShowReticles(v) { if (showReticles === v) return; showReticles = v; _bump(true); }
+-    function setFpsIdle(v) { const n = Number(v); if (n !== 0 && n !== 15 && n !== 30 && n !== 60) return; if (fpsIdle === n) return; fpsIdle = n; _bump(true); }
++    function setFpsIdle(v) { const n = Number(v); if (n !== 0 && n !== 15 && n !== 20 && n !== 30 && n !== 60) return; if (fpsIdle === n) return; fpsIdle = n; _bump(true); }
+     function setHudOpacity(v) { const n = Math.max(0.1, Math.min(1.0, Number(v))); if (!isFinite(n) || hudOpacity === n) return; hudOpacity = n; _bump(true); }
+     function setHudScale(v) { const n = Math.max(0.5, Math.min(1.5, Number(v))); if (!isFinite(n) || hudScale === n) return; hudScale = n; _bump(true); }
+     function setOrbitOpacity(v) { const n = Math.max(0.1, Math.min(1.0, Number(v))); if (!isFinite(n) || orbitOpacity === n) return; orbitOpacity = n; _bump(true); }
+@@ -1083,6 +1114,56 @@ QtObject {
+         _bump(true);
+     }
+ 
++    function setPerfMode(name) {
++        const p = perfPresets[name];
++        if (!p) return;
++        fpsIdle = p.fpsIdle; bakeW = p.bakeW; sensorMs = p.sensorMs; planetScale = p.planetScale;
++        _bump(true);
++    }
++    function cyclePerfMode() {
++        const order = ["quality", "balanced", "performance"];
++        setPerfMode(order[(order.indexOf(perfMode) + 1) % order.length]);   // "custom" (index -1) goes to quality
++        return perfMode;
++    }
++    function setOnBattery(v) { if (onBattery !== v) onBattery = v; }      // runtime: not saved
++
++    // ---------------- placement (the add-widget list) ----------------
++    // where each catalog file currently sits: [{ id, host }]  (the picker dims widgets that are already on a planet)
++    function placesOfSource(source) {
++        const all = entries(), out = [];
++        for (let i = 0; i < all.length; i++) if (all[i].source === source) out.push({ id: all[i].id, host: all[i].host });
++        return out;
++    }
++    // moves an existing widget of this file to `host` instead of making a duplicate; returns its id ("" = none to move)
++    function moveHere(source, host) {
++        const all = entries();
++        for (let i = 0; i < all.length; i++)
++            if (all[i].source === source && all[i].host !== host) { setField(all[i].id, "host", host); previewId = all[i].id; return all[i].id; }
++        return "";
++    }
++    // every widget that sits on this planet now, or started there, goes back to its defaults; widgets added from the panel
++    // that sit on it are deleted. Returns how many widgets were touched.
++    function resetPlanet(planet) {
++        const o = _clone(overrides);
++        let n = 0;
++        for (let i = 0; i < defaults.length; i++) {
++            const d = defaults[i], ov = o[d.id];
++            const host = (ov && ov.host !== undefined) ? ov.host : d.host;
++            if ((host === planet || d.host === planet) && ov) { delete o[d.id]; n++; }
++        }
++        const keep = [];
++        for (let i = 0; i < extras.length; i++) {
++            const x = extras[i], ov = o[x.id];
++            const host = (ov && ov.host !== undefined) ? ov.host : x.host;
++            if (host === planet) { delete o[x.id]; n++; } else keep.push(x);
++        }
++        overrides = o;
++        extras = keep;
++        previewId = "";
++        _bump(true);
++        return n;
++    }
++
+     function setUiOpt(key, val) {
+         if (uiDefaults[key] === undefined) return;
+         let v = val;
+@@ -1092,6 +1173,9 @@ QtObject {
+             if (key === "pinDimOpacity") v = Math.max(0.05, Math.min(1.0, v));
+             else if (key === "pinScale") v = Math.max(1.0, Math.min(2.5, v));
+             else if (key === "pinDimScope") { if (v !== "planet" && v !== "everywhere") return; }
++            else if (key === "fpsIdle") { v = Math.round(v); if (v !== 0 && v !== 15 && v !== 20 && v !== 30 && v !== 60) return; }
++            else if (key === "sensorMs") { v = Math.round(v); if (v !== 2000 && v !== 3000 && v !== 5000) return; }
++            else if (key === "planetScale") { if (!(v > 0.3) || v > 1.0) return; }
+             else if (key === "fpsActive") { v = Math.round(v); if (v !== 0 && v !== 30 && v !== 60 && v !== 90 && v !== 120) return; }
+             else if (key === "driftCruise") v = Math.max(10, v);
+             else if (key === "lockOrbitK") v = Math.max(2.2, v);
+@@ -1124,7 +1208,7 @@ QtObject {
+     function _uiDict() {
+         return {
+             loopPanel: showLoopPanel, shrinkFar: shrinkFar, bakeW: bakeW, hud: showHud, orbits: showOrbits,
+-            labels: showLabels, reticles: showReticles, fpsIdle: fpsIdle, fpsActive: fpsActive,
++            labels: showLabels, reticles: showReticles, fpsIdle: fpsIdle, fpsActive: fpsActive, sensorMs: sensorMs, planetScale: planetScale, autoBattery: autoBattery, showDiag: showDiag,
+             spaceDrift: spaceDrift, driftCruise: driftCruise, lockOrbitK: lockOrbitK, lookSens: lookSens, defaultTimeScale: defaultTimeScale, hudOpacity: hudOpacity, hudScale: hudScale,
+             hudShowGauges: hudShowGauges, hudShowAstronaut: hudShowAstronaut, hudShowGaugeLabels: hudShowGaugeLabels,
+             hudGaugeScale: hudGaugeScale, hudShowGlobe: hudShowGlobe, hudShowGlobeStand: hudShowGlobeStand,
+@@ -1154,7 +1238,11 @@ QtObject {
+         showLabels = u.labels !== false;
+         showReticles = u.reticles !== false;
+         const fi = u.fpsIdle !== undefined ? Number(u.fpsIdle) : 30;
+-        fpsIdle = (fi === 0 || fi === 15 || fi === 30 || fi === 60) ? fi : 30;
++        fpsIdle = (fi === 0 || fi === 15 || fi === 20 || fi === 30 || fi === 60) ? fi : 30;
++        sensorMs = (u.sensorMs === 3000 || u.sensorMs === 5000) ? u.sensorMs : 2000;
++        planetScale = (typeof u.planetScale === "number" && u.planetScale > 0.3 && u.planetScale <= 1.0) ? u.planetScale : 1.0;
++        autoBattery = u.autoBattery === true;
++        showDiag = u.diag === true || u.showDiag === true;
+         const fa = u.fpsActive !== undefined ? Number(u.fpsActive) : 0;
+         fpsActive = (fa === 0 || fa === 30 || fa === 60 || fa === 90 || fa === 120) ? fa : 0;
+         spaceDrift = u.spaceDrift !== false;
+@@ -1258,6 +1346,15 @@ QtObject {
+         return true;
+     }
+ 
++    function nextPreset() {
++        const names = presetNames();
++        if (names.length === 0) return "";
++        const cur = names.indexOf(lastPreset);
++        const n = names[(cur + 1) % names.length];
++        if (loadPreset(n)) lastPreset = n;
++        return n;
++    }
++
+     function deletePreset(name) {
+         if (!presets || !presets[name]) return false;
+         const p = _clone(presets);
+diff --git a/data/WidgetConfigStore.qml b/data/WidgetConfigStore.qml
+index a2fa64c..3f16893 100644
+--- a/data/WidgetConfigStore.qml
++++ b/data/WidgetConfigStore.qml
+@@ -22,6 +22,14 @@ Scope {
+     Connections {
+         target: WidgetConfig
+         function onSaveRequested(text) { file.setText(text); }
++        function onBackupRequested() { backup.running = true; }
++    }
++
++    // BACKUP button: a timestamped copy of widgets.json in widgets-backups/ (restore = copy it back over widgets.json)
++    Process {
++        id: backup
++        command: ["sh", "-c", "d=\"$1/widgets-backups\"; mkdir -p \"$d\" && f=\"$d/widgets-$(date +%Y%m%d-%H%M%S).json\" && cp \"$2\" \"$f\" && echo \"saved $f\" || echo \"backup failed (is there a widgets.json yet?)\"", "sh", root.dir, root.path]
++        stdout: StdioCollector { onStreamFinished: WidgetConfig.backupMsg = String(text).trim() }
+     }
+ 
+     // ---- drop-in widgets: widgets/user/<name>/{Main.qml, widget.json}  (see WIDGETS.md) ----
+diff --git a/docs/rendering.md b/docs/rendering.md
+index a6692c6..e9eda39 100644
+--- a/docs/rendering.md
++++ b/docs/rendering.md
+@@ -65,6 +65,23 @@ While you are interacting after 1288 s, the loop is frozen so the supernova cann
+ * Held keys are tracked in `actDown` (action → bool). Input comes from `KeyHost` and the key handlers in `CameraRig`.
+ * Known bug left on purpose: double-click teleport is flaky; `Alt`+click is the dependable fly-in.
+ 
++## Performance presets (Control Centre > OPTIONS > Rendering & performance)
++
++`WidgetConfig.perfMode` = quality | balanced | performance | custom. A preset only sets four knobs (`fpsIdle`, `bakeW`, `sensorMs`,
++`planetScale`); touching a knob by hand makes the mode `custom`. Consumers read the `eff*` properties (`effFpsIdle`, `effBakeW`,
++`effSensorMs`, `effPlanetScale`, `effHudMs`), which switch to the Performance values while "Performance preset while on battery" is on
++and the battery is discharging (`Sensors` polls `/sys/class/power_supply/BAT*/status` every 30 s, only when that option is on).
++
++| | idle fps | bake | sensors | big-planet render scale |
++|---|---|---|---|---|
++| quality (= old defaults, pixel-identical) | 30 | 1024 | 2 s | 100% |
++| balanced | 20 | 1024 | 3 s | 85% |
++| performance | 15 | 512 | 5 s | 60% |
++
++Render scale < 100% draws a planet quad wider than 240 px into a smaller `layer` texture (rounded to 32 px) and stretches it.
++At 100% the layer is off. Control: `ow perf set|cycle|diag|status` (IPC target `perf`), keys `perf` / `diag` on the KEYS tab.
++The diagnostics box (top right) shows scene frames per second (frames the scene actually worked on), the cap, and system CPU / GPU.
++
+ ## Performance model
+ 
+ * Nothing runs when the scene is hidden: `active = NoctaliaBridge.desktopVisible`.
+diff --git a/hud/SatelliteHUD.qml b/hud/SatelliteHUD.qml
+index 76f1d45..691a8ee 100755
+--- a/hud/SatelliteHUD.qml
++++ b/hud/SatelliteHUD.qml
+@@ -250,7 +250,7 @@ Item {
+ 
+         Timer {
+             id: spinTimer
+-            interval: 33
++            interval: WidgetConfig.effHudMs
+             repeat: true
+             running: (hud.dataSrc ? hud.dataSrc.audioActive : false) && hud.visible && globe.visible
+             property real last: 0
+@@ -328,7 +328,7 @@ Item {
+         readonly property real nU: norm(velU)
+ 
+         Timer {
+-            interval: 33
++            interval: WidgetConfig.effHudMs
+             repeat: true
+             running: hud.rig !== null && hud.visible && thrust.visible
+             property real lx: 0
+diff --git a/planets/PlanetShader.qml b/planets/PlanetShader.qml
+index 48ea27d..28c0d61 100755
+--- a/planets/PlanetShader.qml
++++ b/planets/PlanetShader.qml
+@@ -28,7 +28,7 @@ Item {
+     }
+ 
+     readonly property bool usesBake: bodyType >= 2 && bodyType <= 10
+-    readonly property int bakeW: WidgetConfig.bakeW
++    readonly property int bakeW: WidgetConfig.effBakeW
+ 
+     readonly property real sphereRadiusPx: bodyType === 10 ? screenRadius * 0.79
+                                          : (bodyType === 4 || bodyType === 7 || bodyType === 2 || bodyType === 3) ? screenRadius * 0.999
+@@ -70,6 +70,13 @@ Item {
+ 
+     ShaderEffect {
+         anchors.fill: parent
++        // Performance presets: a big sphere is drawn into a smaller texture and stretched back, which cuts its fragment-shader
++        // cost roughly by scale squared. At scale 1.0 (Quality) the layer is off and the picture is unchanged; small planets
++        // are not worth the extra pass either way. The size is rounded to 32 px so zooming does not reallocate every frame.
++        layer.enabled: WidgetConfig.effPlanetScale < 0.999 && planetNode.width > 240
++        layer.smooth: true
++        layer.textureSize: Qt.size(Math.max(32, Math.ceil(planetNode.width * WidgetConfig.effPlanetScale / 32) * 32),
++                                   Math.max(32, Math.ceil(planetNode.height * WidgetConfig.effPlanetScale / 32) * 32))
+         property color baseColor: planetNode.baseColor
+         property color accentColor: planetNode.accentColor
+         property vector4d lightDir: planetNode.lightDir
+diff --git a/qmldir b/qmldir
+index 06c433b..dbf9bca 100755
+--- a/qmldir
++++ b/qmldir
+@@ -4,6 +4,7 @@ CameraRig 1.0 core/CameraRig.qml
+ PlanetShader 1.0 planets/PlanetShader.qml
+ SatelliteHUD 1.0 hud/SatelliteHUD.qml
+ BlankWidget 1.0 widgets/BlankWidget.qml
++CardText 1.0 widgets/CardText.qml
+ ClockWidget 1.0 widgets/ClockWidget.qml
+ DateWorldWidget 1.0 widgets/DateWorldWidget.qml
+ LoopWidget 1.0 widgets/LoopWidget.qml
+diff --git a/settings/SettingsPanel.qml b/settings/SettingsPanel.qml
+index fe3625a..4ff7b82 100644
+--- a/settings/SettingsPanel.qml
++++ b/settings/SettingsPanel.qml
+@@ -67,6 +67,9 @@ Item {
+     property string pickTarget: ""
+     property string pickQuery: ""
+     property bool confirmReset: false
++    property string confirmPlanet: ""       // BACKUP & RESET PLANET: the planet waiting for its second click
++    property string pickGroup: ""           // add-widget list: only this catalog group ("" = all)
++    property var pickGroups: []
+     property bool confirmClean: false
+     property bool confirmAll: false
+     property string lastHost: "timber_hearth"
+@@ -217,14 +220,26 @@ Item {
+         const cat = WidgetConfig.catalog;
+         let lastGroup = "";
+         for (let i = 0; i < cat.length; i++) {
+-            if (q !== "" && cat[i].name.toLowerCase().indexOf(q) < 0 && cat[i].group.toLowerCase().indexOf(q) < 0) continue;
++            if (pickGroup !== "" && cat[i].group !== pickGroup) continue;
++            // widgets already on a planet (add mode): the list shows where, and offers MOVE HERE instead of a duplicate
++            const places = pickMode === "add" ? WidgetConfig.placesOfSource(cat[i].source) : [];
++            const where = [];
++            let canMove = false;
++            for (let k = 0; k < places.length; k++) {
++                const pn = WidgetConfig.planetName(places[k].host);
++                if (where.indexOf(pn) < 0) where.push(pn);
++                if (places[k].host !== lastHost) canMove = true;
++            }
++            if (q !== "" && cat[i].name.toLowerCase().indexOf(q) < 0 && cat[i].group.toLowerCase().indexOf(q) < 0
++                && where.join(" ").toLowerCase().indexOf(q) < 0) continue;
+             if (cat[i].group !== lastGroup) { out.push({ kind: "group", text: cat[i].group.toUpperCase() }); lastGroup = cat[i].group; }
+-            out.push({ kind: "item", source: cat[i].source, name: cat[i].name });
++            out.push({ kind: "item", source: cat[i].source, name: cat[i].name, where: where, canMove: canMove });
+         }
+         pickModel = out;
+     }
+     onPickQueryChanged: buildPick()
+     onPickModeChanged: buildPick()
++    onPickGroupChanged: buildPick()
+ 
+     property bool pickFromFocus: false
+     function startPick(mode, target, host) {
+@@ -236,6 +251,10 @@ Item {
+             else if (WidgetConfig.focusPlanet !== "") { lastHost = WidgetConfig.focusPlanet; pickFromFocus = true; }
+         }
+         pickQuery = "";
++        pickGroup = "";
++        const gs = [], cat = WidgetConfig.catalog;
++        for (let i = 0; i < cat.length; i++) if (gs.indexOf(cat[i].group) < 0) gs.push(cat[i].group);
++        pickGroups = gs;
+         buildPick();
+         picking = true;
+     }
+@@ -251,6 +270,15 @@ Item {
+         }
+     }
+ 
++    // an existing widget of this file goes to the planet instead of a duplicate being made
++    function pickMove(source) {
++        picking = false;
++        const id = WidgetConfig.moveHere(source, lastHost);
++        if (id === "") return;
++        expandedId = id;
++        if (collapsed[lastHost] === true) toggleCollapse(lastHost);
++    }
++
+     function pickRestore(id) {
+         picking = false;
+         WidgetConfig.restoreWidget(id);
+@@ -1791,7 +1819,29 @@ Item {
+ 
+                     // ---- 6. RENDERING & PERFORMANCE ----
+                     OptAccordion {
+-                        optKey: "render"; title: "Rendering & performance"; subtitle: "Bake resolution, idle FPS cap & distance shrink"
++                        optKey: "render"; title: "Rendering & performance"; subtitle: "Quality / Balanced / Performance presets, FPS caps, planet resolution"
++
++                        FieldHeader { label: "PERFORMANCE PRESET" }
++                        Row {
++                            spacing: 6
++                            Repeater {
++                                model: ["quality", "balanced", "performance"]
++                                delegate: OWButton {
++                                    required property string modelData
++                                    label: modelData.toUpperCase(); pad: 10
++                                    active: WidgetConfig.perfMode === modelData
++                                    onClicked: WidgetConfig.setPerfMode(modelData)
++                                }
++                            }
++                        }
++                        Text {
++                            width: parent.width; wrapMode: Text.Wrap
++                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
++                            text: WidgetConfig.perfMode === "quality" ? "Everything native: 30 fps idle, 1024 px planet textures, planets at full resolution. The picture is unchanged."
++                                : WidgetConfig.perfMode === "balanced" ? "20 fps idle, sensors every 3 s, big planets drawn at 85% resolution. Hard to tell apart from Quality."
++                                : WidgetConfig.perfMode === "performance" ? "15 fps idle (orbits look steppier), 512 px textures, sensors every 5 s, big planets at 60% (slightly soft). Roughly 2-3x cheaper."
++                                : "Custom: you changed a knob below by hand. Pick a preset to set them all."
++                        }
+ 
+                         OWToggleRow { label: "Shrink widgets when far away"; on: WidgetConfig.shrinkFar; modified: WidgetConfig.isUiModified("shrinkFar"); onToggled: (v) => WidgetConfig.setShrinkFar(v); onResetClicked: WidgetConfig.resetUiOption("shrinkFar") }
+                         FieldHeader { label: "PLANET TEXTURE RESOLUTION"; modified: WidgetConfig.isUiModified("bakeW"); onResetClicked: WidgetConfig.resetUiOption("bakeW") }
+@@ -1824,7 +1874,7 @@ Item {
+                         Row {
+                             spacing: 6
+                             Repeater {
+-                                model: [15, 30, 60, 0]
++                                model: [15, 20, 30, 60, 0]
+                                 delegate: OWButton {
+                                     required property int modelData
+                                     label: modelData === 0 ? "OFF" : (modelData + " fps"); pad: 10
+@@ -1833,6 +1883,74 @@ Item {
+                                 }
+                             }
+                         }
++                        FieldHeader { label: "SENSOR POLLING"; modified: WidgetConfig.isUiModified("sensorMs"); onResetClicked: WidgetConfig.resetUiOption("sensorMs") }
++                        Row {
++                            spacing: 6
++                            Repeater {
++                                model: [2000, 3000, 5000]
++                                delegate: OWButton {
++                                    required property int modelData
++                                    label: (modelData / 1000) + " s"; pad: 10
++                                    active: WidgetConfig.sensorMs === modelData
++                                    onClicked: WidgetConfig.setUiOpt("sensorMs", modelData)
++                                }
++                            }
++                        }
++                        FieldHeader { label: "BIG PLANET RENDER SCALE"; modified: WidgetConfig.isUiModified("planetScale"); onResetClicked: WidgetConfig.resetUiOption("planetScale") }
++                        Row {
++                            spacing: 6
++                            Repeater {
++                                model: [100, 85, 70, 60, 50]
++                                delegate: OWButton {
++                                    required property int modelData
++                                    label: modelData + "%"; pad: 10
++                                    active: Math.round(WidgetConfig.planetScale * 100) === modelData
++                                    onClicked: WidgetConfig.setUiOpt("planetScale", modelData / 100)
++                                }
++                            }
++                        }
++                        Text {
++                            width: parent.width; wrapMode: Text.Wrap
++                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
++                            text: "Below 100% a large planet is drawn smaller and stretched: cheaper, a little softer. 100% is untouched."
++                        }
++                        OWToggleRow { label: "Performance values while on battery"; on: WidgetConfig.autoBattery; modified: WidgetConfig.isUiModified("autoBattery"); onToggled: (v) => WidgetConfig.setUiOpt("autoBattery", v); onResetClicked: WidgetConfig.resetUiOption("autoBattery") }
++                        OWToggleRow { label: "FPS / CPU / GPU readout (top right)"; on: WidgetConfig.showDiag; modified: WidgetConfig.isUiModified("showDiag"); onToggled: (v) => WidgetConfig.setUiOpt("showDiag", v); onResetClicked: WidgetConfig.resetUiOption("showDiag") }
++                    }
++
++                    // ---- 6a. BACKUP & RESET A PLANET ----
++                    OptAccordion {
++                        optKey: "backup"; title: "Backup & reset a planet"; subtitle: "Back up widgets.json, reset the widgets of one planet"
++
++                        FieldHeader { label: "BACKUP" }
++                        Row {
++                            spacing: 10
++                            OWButton { label: "BACK UP widgets.json"; onClicked: WidgetConfig.backupRequested() }
++                            Text { anchors.verticalCenter: parent.verticalCenter; width: 200; elide: Text.ElideMiddle; text: WidgetConfig.backupMsg; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
++                        }
++                        FieldHeader { label: "RESET ONE PLANET" }
++                        Text {
++                            width: parent.width; wrapMode: Text.Wrap
++                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
++                            text: "Click a planet twice: its widgets go back to the defaults and widgets you added there are deleted."
++                        }
++                        Flow {
++                            width: parent.width; spacing: 6
++                            Repeater {
++                                model: WidgetConfig.planets
++                                delegate: OWButton {
++                                    required property var modelData
++                                    label: root.confirmPlanet === modelData.id ? "SURE? " + modelData.name : modelData.name
++                                    pad: 8
++                                    danger: root.confirmPlanet === modelData.id
++                                    onClicked: {
++                                        if (root.confirmPlanet === modelData.id) { WidgetConfig.resetPlanet(modelData.id); root.expandedId = ""; root.confirmPlanet = ""; }
++                                        else root.confirmPlanet = modelData.id;
++                                    }
++                                }
++                            }
++                        }
++                        Timer { interval: 3000; running: root.confirmPlanet !== ""; onTriggered: root.confirmPlanet = "" }
+                     }
+ 
+                     // ---- 6b. FLIGHT & CAMERA ----
+@@ -2046,7 +2164,7 @@ Item {
+             Text {
+                 x: 18; y: 44; width: parent.width - 36; wrapMode: Text.Wrap
+                 text: root.pickMode === "add"
+-                      ? "Goes on " + WidgetConfig.planetName(root.lastHost) + (root.pickFromFocus ? " (focused planet)" : "") + "; move it afterwards."
++                      ? "Goes on " + WidgetConfig.planetName(root.lastHost) + (root.pickFromFocus ? " (focused planet)" : "") + ". Dimmed = already on a planet: MOVE HERE relocates it, + COPY adds another."
+                       : "Keeps this widget's planet, orbit and size."
+                 color: root.cDim; font.family: root.mono; font.pixelSize: 10
+             }
+@@ -2056,9 +2174,25 @@ Item {
+                 text: root.pickQuery; onTextChanged: root.pickQuery = text
+             }
+ 
++            Flow {
++                id: groupFlow
++                visible: root.pickMode === "add" && root.pickGroups.length > 1
++                x: 18; y: 116; width: parent.width - 36; spacing: 6
++                OWButton { label: "ALL"; pad: 8; active: root.pickGroup === ""; onClicked: root.pickGroup = "" }
++                Repeater {
++                    model: root.pickGroups
++                    delegate: OWButton {
++                        required property string modelData
++                        label: modelData.toUpperCase(); pad: 8
++                        active: root.pickGroup === modelData
++                        onClicked: root.pickGroup = (root.pickGroup === modelData ? "" : modelData)
++                    }
++                }
++            }
++
+             Flickable {
+                 id: pickFlick
+-                x: 18; y: 116; width: parent.width - 46; height: parent.height - 128
++                x: 18; y: groupFlow.visible ? groupFlow.y + groupFlow.height + 8 : 116; width: parent.width - 46; height: parent.height - y - 12
+                 contentHeight: pickCol.height + 12; clip: true
+                 boundsBehavior: Flickable.StopAtBounds
+ 
+@@ -2079,7 +2213,8 @@ Item {
+                             id: pe
+                             required property var modelData
+                             width: pickCol.width
+-                            height: modelData.kind === "group" ? 30 : 28
++                            readonly property bool placed: modelData.kind === "item" && modelData.where !== undefined && modelData.where.length > 0
++                            height: modelData.kind === "group" ? 30 : (placed ? 46 : 28)
+ 
+                             Text {
+                                 visible: pe.modelData.kind === "group"
+@@ -2089,19 +2224,36 @@ Item {
+                             }
+                             Rectangle {
+                                 visible: pe.modelData.kind !== "group"
+-                                width: parent.width; height: 30; radius: 7
+-                                color: pma.containsMouse ? "#1CD4AF37" : "transparent"
++                                width: parent.width; height: pe.placed ? 42 : 30; radius: 7
++                                color: pma.containsMouse && !pe.placed ? "#1CD4AF37" : "transparent"
+                                 Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+-                                Text {
+-                                    x: 8; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 16; elide: Text.ElideRight
+-                                    text: pe.modelData.kind === "restore"
+-                                          ? pe.modelData.name + "   ·   " + WidgetConfig.planetName(pe.modelData.planet)
+-                                          : (pe.modelData.name || "")
+-                                    color: pe.modelData.kind === "restore" ? root.cGold : root.cCream
+-                                    font.family: root.mono; font.pixelSize: 12
++                                Column {
++                                    x: 8; anchors.verticalCenter: parent.verticalCenter
++                                    width: parent.width - 16 - (pe.placed ? 168 : 0); spacing: 2
++                                    Text {
++                                        width: parent.width; elide: Text.ElideRight
++                                        text: pe.modelData.kind === "restore"
++                                              ? pe.modelData.name + "   ·   " + WidgetConfig.planetName(pe.modelData.planet)
++                                              : (pe.modelData.name || "")
++                                        color: pe.modelData.kind === "restore" ? root.cGold : (pe.placed ? root.cDim : root.cCream)
++                                        font.family: root.mono; font.pixelSize: 12
++                                    }
++                                    Text {
++                                        visible: pe.placed; width: parent.width; elide: Text.ElideRight
++                                        text: pe.placed ? "ON: " + pe.modelData.where.join(", ") : ""
++                                        color: root.cGold; opacity: 0.75
++                                        font.family: root.mono; font.pixelSize: 9; font.letterSpacing: 1
++                                    }
++                                }
++                                Row {
++                                    visible: pe.placed
++                                    anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
++                                    spacing: 6
++                                    OWButton { visible: pe.modelData.canMove === true; label: "MOVE HERE"; pad: 8; onClicked: root.pickMove(pe.modelData.source) }
++                                    OWButton { label: "+ COPY"; pad: 8; onClicked: root.pickChosen(pe.modelData.source) }
+                                 }
+                                 MouseArea {
+-                                    id: pma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
++                                    id: pma; anchors.fill: parent; enabled: !pe.placed; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                     onClicked: {
+                                         if (pe.modelData.kind === "restore") root.pickRestore(pe.modelData.id);
+                                         else if (pe.modelData.kind === "item") root.pickChosen(pe.modelData.source);
+diff --git a/widgets/CardText.qml b/widgets/CardText.qml
+new file mode 100644
+index 0000000..ec5918b
+--- /dev/null
++++ b/widgets/CardText.qml
+@@ -0,0 +1,31 @@
++import QtQuick
++
++// A Text that never spills out of its card. Give it `ui` (the card's size multiplier) and `px` (the size in px at ui = 1);
++// with `maxW` set it shrinks to fit that width (down to `minShrink` of its size) and then elides with "...".
++// Without `maxW` it is a plain one-line label. Colour defaults to the card's cream; pass `color:` for others.
++//
++//   CardText { ui: w.ui; px: 14; bold: true; maxW: w.innerW; text: "..." }
++Text {
++    id: t
++
++    property real ui: 1.0
++    property real px: 12
++    property real maxW: 0            // 0 = no width limit
++    property real minShrink: 0.6
++    property bool bold: false
++    property real tracking: 0        // letter spacing at ui = 1
++
++    readonly property real wantPx: Math.max(7, Math.round(px * ui))
++
++    color: "#E6D5B8"
++    font.family: "monospace"
++    font.pixelSize: wantPx
++    font.bold: bold
++    font.letterSpacing: tracking * ui
++    maximumLineCount: 1
++    wrapMode: Text.NoWrap
++    elide: Text.ElideRight
++    fontSizeMode: maxW > 0 ? Text.HorizontalFit : Text.FixedSize
++    minimumPixelSize: Math.max(6, Math.round(wantPx * minShrink))
++    width: maxW > 0 ? maxW : implicitWidth
++}
+diff --git a/widgets/ClockWidget.qml b/widgets/ClockWidget.qml
+index b5fb6f9..17956d0 100755
+--- a/widgets/ClockWidget.qml
++++ b/widgets/ClockWidget.qml
+@@ -18,6 +18,7 @@ WidgetCard {
+ 
+     Column {
+         anchors.centerIn: parent
++        width: w.innerW
+         spacing: 4 * w.ui
+ 
+         Item {
+@@ -25,16 +26,18 @@ WidgetCard {
+             width: hm.width + (secs.visible ? secs.width + 8 * w.ui : 0)
+             height: hm.height
+ 
+-            Text {
++            // shrinks to fit next to the seconds, so a long 12-hour time ("12:59 PM") can never leave the card
++            CardText {
+                 id: hm
++                ui: w.ui; px: 62; bold: true
++                maxW: w.innerW - (secs.visible ? secs.width + 8 * w.ui : 0)
+                 text: Qt.formatTime(w.d, w.cfg.hour24 ? "HH:mm" : "h:mm AP")
+                 color: w.cfg.timeColor
+                 font.family: w.cfg.font
+-                font.bold: true
+-                font.pixelSize: Math.max(10, Math.round(62 * w.ui))
+             }
+-            Text {
++            CardText {
+                 id: secs
++                ui: w.ui; px: 24
+                 anchors.left: hm.right
+                 anchors.leftMargin: 8 * w.ui
+                 anchors.baseline: hm.baseline
+@@ -42,18 +45,18 @@ WidgetCard {
+                 text: Qt.formatTime(w.d, "ss")
+                 color: w.cfg.secondsColor
+                 font.family: w.cfg.font
+-                font.pixelSize: Math.max(8, Math.round(24 * w.ui))
+             }
+         }
+ 
+-        Text {
++        CardText {
+             anchors.horizontalCenter: parent.horizontalCenter
+             visible: w.cfg.showDate
++            ui: w.ui; px: 12; tracking: 1.5
++            maxW: w.innerW
++            horizontalAlignment: Text.AlignHCenter
+             text: Qt.formatDate(w.d, w.cfg.dateFormat).toUpperCase()
+             color: w.cDim
+             font.family: w.cfg.font
+-            font.pixelSize: Math.max(7, Math.round(12 * w.ui))
+-            font.letterSpacing: 1.5 * w.ui
+         }
+     }
+ }
+diff --git a/widgets/WidgetCard.qml b/widgets/WidgetCard.qml
+index f00f2a9..f49948e 100755
+--- a/widgets/WidgetCard.qml
++++ b/widgets/WidgetCard.qml
+@@ -22,6 +22,10 @@ Item {
+     readonly property bool effBrackets: (cardStyle && cardStyle.brackets !== undefined) ? cardStyle.brackets : WidgetConfig.widgetBrackets
+     property color accent: (cardStyle && cardStyle.accent) ? cardStyle.accent : WidgetConfig.widgetAccent
+ 
++    // room inside the padding, so a widget can size its text to fit (see CardText)
++    readonly property real innerW: width - 24 * ui
++    readonly property real innerH: height - (effTitle !== "" ? 42 : 24) * ui
++
+     width: Math.round(designW * ui)
+     height: Math.round(designH * ui)
+ 
+diff --git a/widgets/WorkspacesWidget.qml b/widgets/WorkspacesWidget.qml
+index ec3b2d5..3daabaa 100755
+--- a/widgets/WorkspacesWidget.qml
++++ b/widgets/WorkspacesWidget.qml
+@@ -20,10 +20,19 @@ WidgetCard {
+         return out.length > 0 ? out : list;
+     }
+ 
++    // the pills shrink so any number of workspaces fits the card, whatever the column setting says
++    readonly property int count: visibleWorkspaces().length
++    readonly property int cols: Math.max(1, Math.min(Math.round(w.cfg.columns || 5), Math.max(1, count)))
++    readonly property int rows: Math.max(1, Math.ceil(count / cols))
++    readonly property real gap: 10 * w.ui
++    readonly property real pillPx: Math.max(14 * w.ui, Math.min((w.cfg.pillSize || 40) * w.ui,
++                                    (w.innerW - (cols - 1) * gap) / cols,
++                                    (w.innerH - (rows - 1) * gap) / rows))
++
+     Grid {
+         anchors.centerIn: parent
+-        columns: Math.max(1, Math.round(w.cfg.columns || 5))
+-        spacing: 10 * w.ui
++        columns: w.cols
++        spacing: w.gap
+ 
+         Repeater {
+             model: w.visibleWorkspaces()
+@@ -36,7 +45,7 @@ WidgetCard {
+                 readonly property color actCol: w.cfg.activeColor || w.cGold
+                 readonly property color occCol: w.cfg.occupiedColor || w.cCream
+ 
+-                width: Math.round((w.cfg.pillSize || 40) * w.ui)
++                width: Math.round(w.pillPx)
+                 height: width
+                 radius: w.cfg.shape === "square" ? Math.round(2 * w.ui)
+                       : (w.cfg.shape === "rounded" ? Math.round(8 * w.ui) : width / 2)
+@@ -44,13 +53,14 @@ WidgetCard {
+                 border.width: Math.max(1, Math.round(w.ui * 1.5))
+                 border.color: active ? actCol : (occupied ? occCol : "#55D4AF37")
+ 
+-                Text {
++                CardText {
+                     anchors.centerIn: parent
++                    ui: 1.0; px: Math.max(8, Math.round(pill.width * 0.4))
++                    maxW: pill.width - 4
++                    horizontalAlignment: Text.AlignHCenter
++                    bold: true
+                     text: pill.modelData.id
+                     color: pill.active ? "#07080C" : (pill.occupied ? pill.occCol : w.cDim)
+-                    font.family: "monospace"
+-                    font.bold: true
+-                    font.pixelSize: Math.max(8, Math.round((w.cfg.pillSize || 40) * 0.4 * w.ui))
+                 }
+ 
+                 MouseArea {

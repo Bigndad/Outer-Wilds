@@ -250,7 +250,7 @@ Item {
 
         Timer {
             id: spinTimer
-            interval: 33
+            interval: WidgetConfig.effHudMs
             repeat: true
             running: (hud.dataSrc ? hud.dataSrc.audioActive : false) && hud.visible && globe.visible
             property real last: 0
@@ -328,7 +328,7 @@ Item {
         readonly property real nU: norm(velU)
 
         Timer {
-            interval: 33
+            interval: WidgetConfig.effHudMs
             repeat: true
             running: hud.rig !== null && hud.visible && thrust.visible
             property real lx: 0

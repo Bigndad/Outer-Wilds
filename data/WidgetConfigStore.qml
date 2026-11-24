@@ -22,6 +22,14 @@ Scope {
     Connections {
         target: WidgetConfig
         function onSaveRequested(text) { file.setText(text); }
+        function onBackupRequested() { backup.running = true; }
+    }
+
+    // BACKUP button: a timestamped copy of widgets.json in widgets-backups/ (restore = copy it back over widgets.json)
+    Process {
+        id: backup
+        command: ["sh", "-c", "d=\"$1/widgets-backups\"; mkdir -p \"$d\" && f=\"$d/widgets-$(date +%Y%m%d-%H%M%S).json\" && cp \"$2\" \"$f\" && echo \"saved $f\" || echo \"backup failed (is there a widgets.json yet?)\"", "sh", root.dir, root.path]
+        stdout: StdioCollector { onStreamFinished: WidgetConfig.backupMsg = String(text).trim() }
     }
 
     // ---- drop-in widgets: widgets/user/<name>/{Main.qml, widget.json}  (see WIDGETS.md) ----

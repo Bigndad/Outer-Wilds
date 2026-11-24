@@ -28,7 +28,7 @@ Item {
     }
 
     readonly property bool usesBake: bodyType >= 2 && bodyType <= 10
-    readonly property int bakeW: WidgetConfig.bakeW
+    readonly property int bakeW: WidgetConfig.effBakeW
 
     readonly property real sphereRadiusPx: bodyType === 10 ? screenRadius * 0.79
                                          : (bodyType === 4 || bodyType === 7 || bodyType === 2 || bodyType === 3) ? screenRadius * 0.999
@@ -70,6 +70,13 @@ Item {
 
     ShaderEffect {
         anchors.fill: parent
+        // Performance presets: a big sphere is drawn into a smaller texture and stretched back, which cuts its fragment-shader
+        // cost roughly by scale squared. At scale 1.0 (Quality) the layer is off and the picture is unchanged; small planets
+        // are not worth the extra pass either way. The size is rounded to 32 px so zooming does not reallocate every frame.
+        layer.enabled: WidgetConfig.effPlanetScale < 0.999 && planetNode.width > 240
+        layer.smooth: true
+        layer.textureSize: Qt.size(Math.max(32, Math.ceil(planetNode.width * WidgetConfig.effPlanetScale / 32) * 32),
+                                   Math.max(32, Math.ceil(planetNode.height * WidgetConfig.effPlanetScale / 32) * 32))
         property color baseColor: planetNode.baseColor
         property color accentColor: planetNode.accentColor
         property vector4d lightDir: planetNode.lightDir

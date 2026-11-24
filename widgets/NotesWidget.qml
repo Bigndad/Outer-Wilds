@@ -13,6 +13,9 @@ WidgetCard {
                          font: "monospace", showFooter: true, countMode: "chars" })
 
     readonly property bool wantsHold: area.activeFocus
+    readonly property string _typingKey: "notes_" + Math.random().toString(36).slice(2)
+    readonly property color effTextCol: (cfg.textColor && cfg.textColor.toUpperCase() !== "#E6D5B8") ? cfg.textColor : w.cCream
+    readonly property string effNotesFont: (cfg.font && cfg.font !== "monospace") ? cfg.font : w.effFont
     readonly property string countText: {
         const s = WidgetData.notesText || "";
         if (w.cfg.countMode === "words") {
@@ -22,26 +25,43 @@ WidgetCard {
         return s.length + " CHARS";
     }
 
-    ScrollView {
+    // Swallow any unconsumed keys (Shift, Ctrl, etc.) so nothing bubbles to CameraRig while typing
+    Keys.onPressed: (event) => { if (area.activeFocus) event.accepted = true; }
+    Keys.onReleased: (event) => { if (area.activeFocus) event.accepted = true; }
+    Component.onDestruction: WidgetConfig.setWidgetTyping(_typingKey, false)
+
+    Rectangle {
         anchors.fill: parent
         anchors.bottomMargin: w.cfg.showFooter !== false ? 22 * w.ui : 0
-        clip: true
+        radius: 4 * w.ui
+        color: "#22000000"
+        border.width: Math.max(1, Math.round(w.ui))
+        border.color: area.activeFocus ? w.accent : Qt.rgba(w.cDim.r, w.cDim.g, w.cDim.b, 0.2)
 
-        TextArea {
-            id: area
-            text: WidgetData.notesText
-            wrapMode: TextEdit.Wrap
-            color: w.cfg.textColor || w.cCream
-            selectByMouse: true
-            font.family: w.cfg.font || "monospace"
-            font.pixelSize: Math.max(8, Math.round((w.cfg.fontSize || 14) * w.ui))
-            placeholderText: w.cfg.placeholder !== undefined ? w.cfg.placeholder : "quick notes..."
-            placeholderTextColor: "#6A634F"
-            background: null
-            onTextChanged: if (activeFocus) WidgetData.setNotes(text)
-            Keys.onEscapePressed: {
-                if (w.rig) w.rig.forceActiveFocus();
-                else focus = false;
+        ScrollView {
+            anchors.fill: parent
+            anchors.margins: 4 * w.ui
+            clip: true
+
+            TextArea {
+                id: area
+                text: WidgetData.notesText
+                wrapMode: TextEdit.Wrap
+                color: w.effTextCol
+                selectByMouse: true
+                font.family: w.effNotesFont
+                font.pixelSize: Math.max(8, Math.round((w.cfg.fontSize || 14) * w.ui))
+                placeholderText: w.cfg.placeholder !== undefined ? w.cfg.placeholder : "quick notes..."
+                placeholderTextColor: w.cDim
+                background: null
+                onActiveFocusChanged: WidgetConfig.setWidgetTyping(w._typingKey, activeFocus)
+                onTextChanged: if (activeFocus) WidgetData.setNotes(text)
+                Keys.onEscapePressed: (event) => {
+                    event.accepted = true;
+                    focus = false;
+                    WidgetConfig.setWidgetTyping(w._typingKey, false);
+                    if (w.rig) w.rig.forceActiveFocus();
+                }
             }
         }
     }
@@ -56,18 +76,18 @@ WidgetCard {
         Text {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            text: w.countText
-            color: w.cDim
-            font.family: w.cfg.font || "monospace"
-            font.pixelSize: Math.max(7, Math.round(10 * w.ui))
+            text: area.activeFocus ? "TYPING  ·  ESC TO EXIT" : w.countText
+            color: area.activeFocus ? w.accent : w.cDim
+            font.family: w.effNotesFont
+            font.pixelSize: Math.max(7, Math.round(9 * w.ui))
         }
         Text {
             id: clearTxt
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: "CLEAR"
-            color: clearHover.containsMouse ? w.cGold : w.cDim
-            font.family: w.cfg.font || "monospace"
+            color: clearHover.containsMouse ? w.accent : w.cDim
+            font.family: w.effNotesFont
             font.pixelSize: Math.max(7, Math.round(10 * w.ui))
             font.letterSpacing: 1 * w.ui
             MouseArea {

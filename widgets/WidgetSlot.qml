@@ -108,9 +108,6 @@ Item {
         const p = rg.project3D(wx, wy, wz, w * 0.5, h * 0.5, fov);
         if (!p) { slot.visible = false; return; }
 
-        const mx = slot.width * 0.5 + 40, my = slot.height * 0.5 + 40;
-        if (p.sx < -mx || p.sx > w + mx || p.sy < -my || p.sy > h + my) { slot.visible = false; return; }
-
         const sc = Math.min(w, h) / 1080;
         const worldW = slot.def.worldWk !== undefined ? slot.def.worldWk * hostR : slot.def.worldW * rf;
         const raw = p.scale * worldW / item.designW;
@@ -118,14 +115,19 @@ Item {
         const minUi = (slot.def.minUi !== undefined ? slot.def.minUi : 0.4) * sc * farK;
         const maxUi = (slot.def.maxUi !== undefined ? slot.def.maxUi : 1.5) * sc;
         const uiRaw = clamp(raw, minUi, maxUi);
-        const q = Math.max(0.2, Math.round(uiRaw * 24) / 24);
+        const minQ = (item.minLayoutUi !== undefined) ? item.minLayoutUi : 0.2;
+        const q = Math.max(minQ, Math.round(uiRaw * 24) / 24);
         if (item.ui !== q) item.ui = q;
         slot.scale = (uiRaw / q) * slot.pinMultScale;
+
+        const visW = slot.width * slot.scale, visH = slot.height * slot.scale;
+        const mx = visW * 0.5 + 40, my = visH * 0.5 + 40;
+        if (p.sx < -mx || p.sx > w + mx || p.sy < -my || p.sy > h + my) { slot.visible = false; return; }
 
         let occ = 1;
         if (p.depth > proj.depth) {
             const dist = Math.hypot(p.sx - proj.sx, p.sy - proj.sy);
-            occ = sstep(proj.screenR * 0.85, proj.screenR * 1.1 + slot.width * 0.15, dist);
+            occ = sstep(proj.screenR * 0.85, proj.screenR * 1.1 + visW * 0.15, dist);
         }
         occlusion += (occ - occlusion) * Math.min(1, 12 * dt);
 
@@ -161,6 +163,11 @@ Item {
         acceptedButtons: Qt.AllButtons
         onWheel: (wheel) => { wheel.accepted = true; }
         onClicked: (mouse) => {
+            if (WidgetConfig.widgetTyping) {
+                WidgetConfig.clearWidgetTyping();
+                if (slot.rig) slot.rig.forceActiveFocus();
+                return;
+            }
             if (mouse.button === Qt.LeftButton && (mouse.modifiers & Qt.AltModifier)) {
                 if (slot.rig && typeof slot.rig.flyInAt === "function") {
                     const p = blocker.mapToItem(slot.rig, mouse.x, mouse.y);
@@ -199,7 +206,9 @@ Item {
                 brackets: (slot.def.showBrackets !== false) && WidgetConfig.widgetBrackets,
                 title: slot.def.customTitle || "",
                 globalRadius: WidgetConfig.widgetRadius,
-                globalAccent: WidgetConfig.widgetAccent
+                globalAccent: WidgetConfig.widgetAccent,
+                host: slot.def.host || "",
+                cfg: slot.def.cfg || ({})
             };
         }
     }

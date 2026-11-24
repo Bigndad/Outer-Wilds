@@ -35,6 +35,9 @@ QtObject {
         { id: "keys",      group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Key list",             hint: "open this panel on the KEYS tab",   def: "F1" },
         { id: "hud",       group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Loop / speed panel",   hint: "show / hide the bottom-right box",  def: "H" },
         { id: "launcher",  group: gAnywhere, ctx: "all",   kind: "shortcut", label: "App launcher",         hint: "open the big launcher (no key yet)", def: "" },
+        { id: "perf",      group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Performance preset",   hint: "cycle Quality / Balanced / Performance (no key yet)", def: "" },
+        { id: "diag",      group: gAnywhere, ctx: "all",   kind: "shortcut", label: "FPS / CPU readout",    hint: "show / hide the diagnostics box (no key yet)", def: "" },
+        { id: "layout",    group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Next widget layout",   hint: "switch to the next saved layout preset (no key yet)", def: "" },
         { id: "scope",     group: gAnywhere, ctx: "all",   kind: "shortcut", label: "Signalscope",          hint: "equip / stow",                      def: "Q", scopeKey: "toggle" },
 
         { id: "fwd",       group: gFlight,   ctx: "scene", kind: "key",      label: "Forward",              hint: "zoom in while locked on a planet",  def: "W" },

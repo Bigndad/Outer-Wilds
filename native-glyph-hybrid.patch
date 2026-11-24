@@ -1,0 +1,179 @@
+diff --git a/widgets/WidgetCard.qml b/widgets/WidgetCard.qml
+--- a/widgets/WidgetCard.qml
++++ b/widgets/WidgetCard.qml
+@@ -16,7 +16,7 @@ Item {
+     readonly property color cCream: "#E6D5B8"
+     readonly property color cGold: "#D4AF37"
+     readonly property color cDim: "#8A7F66"
+-    readonly property color cBg: "#E007080C"
++    readonly property color cBg: "#EB0B0C10"
+     property var cardStyle: ({})        // per-widget overrides pushed by WidgetSlot
+     readonly property string effTitle: (cardStyle && cardStyle.title) ? cardStyle.title : title
+     readonly property bool effBrackets: (cardStyle && cardStyle.brackets !== undefined) ? cardStyle.brackets : WidgetConfig.widgetBrackets
+@@ -24,7 +24,7 @@ Item {
+ 
+     // room inside the padding, so a widget can size its text to fit (see CardText)
+     readonly property real innerW: width - 24 * ui
+-    readonly property real innerH: height - (effTitle !== "" ? 42 : 24) * ui
++    readonly property real innerH: height - (effTitle !== "" ? 44 : 24) * ui
+ 
+     width: Math.round(designW * ui)
+     height: Math.round(designH * ui)
+@@ -33,43 +33,73 @@ Item {
+         anchors.fill: parent
+         radius: ((card.cardStyle && card.cardStyle.radius >= 0) ? card.cardStyle.radius : WidgetConfig.widgetRadius) * card.ui
+         color: (card.cardStyle && card.cardStyle.bg) ? card.cardStyle.bg : card.cBg
+-        border.color: (card.cardStyle && card.cardStyle.border) ? card.cardStyle.border : "#55D4AF37"
++        border.color: (card.cardStyle && card.cardStyle.border) ? card.cardStyle.border : "#26E6D5B8"
+         border.width: Math.max(1, Math.round(card.ui))
++
++        // subtle inner hairline rim for a cleaner matte hardware-module edge
++        Rectangle {
++            anchors.fill: parent
++            anchors.margins: Math.max(1, Math.round(card.ui))
++            radius: Math.max(0, parent.radius - Math.max(1, Math.round(card.ui)))
++            color: "transparent"
++            border.color: "#0FE6D5B8"
++            border.width: Math.max(1, Math.round(card.ui))
++        }
+     }
+ 
+     component Bracket: Item {
+         visible: card.effBrackets
+         property bool atRight: false
+         property bool atBottom: false
+-        width: 11 * card.ui
+-        height: 11 * card.ui
++        width: 8 * card.ui
++        height: 8 * card.ui
++        opacity: 0.85
+         x: atRight ? card.width - width : 0
+         y: atBottom ? card.height - height : 0
+         Rectangle {
+             width: parent.width
+-            height: Math.max(1, Math.round(card.ui * 1.5))
++            height: Math.max(1, Math.round(card.ui))
+             y: atBottom ? parent.height - height : 0
+             color: card.accent
+         }
+         Rectangle {
+             height: parent.height
+-            width: Math.max(1, Math.round(card.ui * 1.5))
++            width: Math.max(1, Math.round(card.ui))
+             x: atRight ? parent.width - width : 0
+             color: card.accent
+         }
+     }
+     Bracket { }
+     Bracket { atRight: true }
+     Bracket { atBottom: true }
+     Bracket { atRight: true; atBottom: true }
+ 
+-    Text {
++    Row {
+         visible: card.effTitle !== ""
+-        x: 14 * card.ui
++        x: 12 * card.ui
+         y: 9 * card.ui
+-        text: card.effTitle
+-        color: card.cDim
+-        font.family: "monospace"
+-        font.pixelSize: Math.max(8, Math.round(11 * card.ui))
+-        font.letterSpacing: 2 * card.ui
++        spacing: 6 * card.ui
++
++        Rectangle {
++            anchors.verticalCenter: parent.verticalCenter
++            width: Math.max(3, Math.round(4 * card.ui))
++            height: width
++            radius: width / 2
++            color: card.accent
++        }
++        Text {
++            text: card.effTitle
++            color: card.cDim
++            font.family: "monospace"
++            font.pixelSize: Math.max(8, Math.round(10 * card.ui))
++            font.letterSpacing: 2 * card.ui
++        }
++    }
++
++    Rectangle {
++        visible: card.effTitle !== ""
++        x: 12 * card.ui
++        y: 26 * card.ui
++        width: card.width - 24 * card.ui
++        height: Math.max(1, Math.round(card.ui))
++        color: "#1AE6D5B8"
+     }
+ 
+     Item {
+         id: body
+         anchors.fill: parent
+         anchors.margins: 12 * card.ui
+-        anchors.topMargin: card.effTitle !== "" ? 30 * card.ui : 12 * card.ui
++        anchors.topMargin: card.effTitle !== "" ? 32 * card.ui : 12 * card.ui
+     }
+ }
+diff --git a/widgets/ClockWidget.qml b/widgets/ClockWidget.qml
+--- a/widgets/ClockWidget.qml
++++ b/widgets/ClockWidget.qml
+@@ -43,6 +43,23 @@ WidgetCard {
+             }
+         }
+ 
++        // 12-segment seconds bar (5 s per pip) for a subtle Glyph-style instrument accent
++        Row {
++            anchors.horizontalCenter: parent.horizontalCenter
++            visible: w.cfg.showSeconds
++            spacing: 4 * w.ui
++            Repeater {
++                model: 12
++                Rectangle {
++                    readonly property bool lit: Math.floor(w.d.getSeconds() / 5) >= index
++                    width: Math.max(4, Math.round(10 * w.ui))
++                    height: Math.max(2, Math.round(2.5 * w.ui))
++                    radius: height / 2
++                    color: lit ? w.cfg.secondsColor : "#22E6D5B8"
++                }
++            }
++        }
++
+         CardText {
+             anchors.horizontalCenter: parent.horizontalCenter
+             visible: w.cfg.showDate
+diff --git a/widgets/UptimeWidget.qml b/widgets/UptimeWidget.qml
+--- a/widgets/UptimeWidget.qml
++++ b/widgets/UptimeWidget.qml
+@@ -9,13 +9,24 @@ WidgetCard {
+ 
+     property var cfg: ({ prefix: "", showSeconds: false, textSize: 24, textColor: "#E6D5B8", font: "monospace" })
+ 
+-    Text {
++    Row {
+         anchors.centerIn: parent
+-        text: (w.cfg.prefix || "") + WidgetData.formatUptime(WidgetData.uptimeSeconds)
+-              + (w.cfg.showSeconds ? (":" + String(Math.floor(WidgetData.uptimeSeconds) % 60).padStart(2, "0")) : "")
+-        color: w.cfg.textColor || w.cCream
+-        font.family: w.cfg.font || "monospace"
+-        font.bold: true
+-        font.pixelSize: Math.max(9, Math.round((w.cfg.textSize || 24) * w.ui))
++        spacing: 8 * w.ui
++
++        Rectangle {
++            anchors.verticalCenter: parent.verticalCenter
++            width: Math.max(4, Math.round(5 * w.ui))
++            height: width
++            radius: width / 2
++            color: w.accent
++        }
++        Text {
++            text: (w.cfg.prefix || "") + WidgetData.formatUptime(WidgetData.uptimeSeconds)
++                  + (w.cfg.showSeconds ? (":" + String(Math.floor(WidgetData.uptimeSeconds) % 60).padStart(2, "0")) : "")
++            color: w.cfg.textColor || w.cCream
++            font.family: w.cfg.font || "monospace"
++            font.bold: true
++            font.pixelSize: Math.max(9, Math.round((w.cfg.textSize || 24) * w.ui))
++        }
+     }
+ }

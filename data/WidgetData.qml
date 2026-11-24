@@ -33,7 +33,7 @@ Singleton {
     function switchWorkspace(id) {
         workspaceSwitchRequested(id);
         activeWorkspace = id;
-        // live: Hyprland.dispatch("workspace " + id)
+        Quickshell.execDetached(["hyprctl", "dispatch", "workspace", String(id)]);
     }
 
     function setNotes(text) {

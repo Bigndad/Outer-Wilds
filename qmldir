@@ -4,6 +4,7 @@ CameraRig 1.0 core/CameraRig.qml
 PlanetShader 1.0 planets/PlanetShader.qml
 SatelliteHUD 1.0 hud/SatelliteHUD.qml
 BlankWidget 1.0 widgets/BlankWidget.qml
+CardText 1.0 widgets/CardText.qml
 ClockWidget 1.0 widgets/ClockWidget.qml
 DateWorldWidget 1.0 widgets/DateWorldWidget.qml
 LoopWidget 1.0 widgets/LoopWidget.qml

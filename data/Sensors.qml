@@ -26,7 +26,7 @@ Singleton {
     property real _prevTotal: 0
 
     Timer {
-        interval: 2000
+        interval: WidgetConfig.effSensorMs
         running: NoctaliaBridge.desktopVisible
         repeat: true
         triggeredOnStart: true
@@ -140,6 +140,24 @@ Singleton {
                 }
                 root.disks = out;
             }
+        }
+    }
+
+    // "On battery -> Performance preset" (Control Centre > OPTIONS). Only polls while that option is on; a desktop PC has no
+    // battery, so the answer is simply "no" there.
+    Timer {
+        interval: 30000
+        running: WidgetConfig.autoBattery && NoctaliaBridge.desktopVisible
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: batteryProc.running = true
+        onRunningChanged: if (!running) WidgetConfig.setOnBattery(false)
+    }
+    Process {
+        id: batteryProc
+        command: ["sh", "-c", "cat /sys/class/power_supply/BAT*/status 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: WidgetConfig.setOnBattery(String(text).indexOf("Discharging") >= 0)
         }
     }
 }

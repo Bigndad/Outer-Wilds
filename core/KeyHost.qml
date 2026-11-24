@@ -17,12 +17,12 @@ Item {
 
     // the planet being targeted / locked on: new widgets are added there (Control Centre)
     Binding { target: WidgetConfig;    property: "focusPlanet"; value: host.rig ? host.rig.activeFocusId : "" }
-    Binding { target: MapData;         property: "toggleKey"; value: Keybinds.seq("map") }
-    Binding { target: RumorData;       property: "toggleKey"; value: Keybinds.seq("rumor") }
-    Binding { target: SignalscopeData; property: "keys";      value: Keybinds.scopeKeys() }
+    Binding { target: MapData;         property: "toggleKey"; value: WidgetConfig.widgetTyping ? "" : Keybinds.seq("map") }
+    Binding { target: RumorData;       property: "toggleKey"; value: WidgetConfig.widgetTyping ? "" : Keybinds.seq("rumor") }
+    Binding { target: SignalscopeData; property: "keys";      value: WidgetConfig.widgetTyping ? ({}) : Keybinds.scopeKeys() }
 
     // the overlays handle their own keys while they are up (the map's E = edit widgets); never type-trigger while a text field is active
-    readonly property bool free: !MapData.open && !RumorData.open && !RumorData.typing
+    readonly property bool free: !MapData.open && !RumorData.open && !RumorData.typing && !WidgetConfig.widgetTyping
 
     Shortcut {
         sequence: Keybinds.seq("edit")
@@ -32,7 +32,7 @@ Item {
     }
     Shortcut {
         sequence: Keybinds.seq("keys")
-        enabled: !RumorData.typing
+        enabled: !RumorData.typing && !WidgetConfig.widgetTyping
         autoRepeat: false
         onActivated: {
             if (WidgetConfig.panelOpen && WidgetConfig.panelTab === "keys") { WidgetConfig.panelOpen = false; return; }
@@ -45,6 +45,24 @@ Item {
         enabled: host.free && Keybinds.seq("launcher") !== ""
         autoRepeat: false
         onActivated: WidgetConfig.launcherRequested()
+    }
+    Shortcut {
+        sequence: Keybinds.seq("perf")
+        enabled: host.free && Keybinds.seq("perf") !== ""
+        autoRepeat: false
+        onActivated: WidgetConfig.cyclePerfMode()
+    }
+    Shortcut {
+        sequence: Keybinds.seq("diag")
+        enabled: host.free && Keybinds.seq("diag") !== ""
+        autoRepeat: false
+        onActivated: WidgetConfig.setShowDiag(!WidgetConfig.showDiag)
+    }
+    Shortcut {
+        sequence: Keybinds.seq("layout")
+        enabled: host.free && Keybinds.seq("layout") !== ""
+        autoRepeat: false
+        onActivated: WidgetConfig.nextPreset()
     }
     Shortcut {
         sequence: Keybinds.seq("hud")

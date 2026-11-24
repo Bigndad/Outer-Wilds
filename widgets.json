@@ -128,6 +128,12 @@
     "x24": {
       "size": 0.7000000000000001,
       "speed": -0.39
+    },
+    "x25": {
+      "host": "giants_deep"
+    },
+    "x27": {
+      "host": "brittle_hollow"
     }
   },
   "extras": [
@@ -389,24 +395,6 @@
       }
     },
     {
-      "id": "x16",
-      "host": "giants_deep",
-      "source": "serp/GiantsDeepWeather.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": 0.8357003711775983,
-        "node": 0.7002961569224837,
-        "phase": 0.7002961569224837,
-        "speed": 0.2
-      },
-      "title": "WEATHER"
-    },
-    {
       "id": "x17",
       "host": "quantum_moon",
       "source": "serp/AnserinUser.qml",
@@ -543,9 +531,98 @@
         "phase": 1.050444235383729,
         "speed": 0.2
       }
+    },
+    {
+      "id": "x25",
+      "host": "sun",
+      "source": "WallpaperCard.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.36492305986007556,
+        "node": 0.45040723538372873,
+        "phase": 3.4504072353837287,
+        "speed": 0.2
+      },
+      "title": "WALLPAPER"
+    },
+    {
+      "id": "x16",
+      "host": "giants_deep",
+      "source": "WeatherWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8357003711775983,
+        "node": 0.7002961569224837,
+        "phase": 0.7002961569224837,
+        "speed": 0.2
+      },
+      "title": "WEATHER"
+    },
+    {
+      "id": "x26",
+      "host": "quantum_moon",
+      "source": "serp/SunStationCpu.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.44785696776745476,
+        "node": 2.8503702353837284,
+        "phase": 5.850370235383728,
+        "speed": 0.2
+      },
+      "title": "CPU"
+    },
+    {
+      "id": "x27",
+      "host": "quantum_moon",
+      "source": "NotesWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": -0.18105884629915878,
+        "node": 1.9671479282041417,
+        "phase": 1.9671479282041417,
+        "speed": 0.2
+      }
+    },
+    {
+      "id": "x28",
+      "host": "attlerock",
+      "source": "TodoWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.8181092936668753,
+        "node": 1.3671109282041414,
+        "phase": 4.367110928204141,
+        "speed": 0.2
+      }
     }
   ],
   "pinned": {
+    "x15": true,
     "x22": true
   },
   "presets": {},
@@ -556,17 +633,22 @@
   "ui": {
     "loopPanel": false,
     "shrinkFar": true,
-    "bakeW": 2048,
+    "bakeW": 1024,
     "hud": true,
     "orbits": true,
     "labels": true,
     "reticles": true,
     "fpsIdle": 30,
-    "fpsActive": 60,
+    "fpsActive": 120,
+    "sensorMs": 2000,
+    "planetScale": 1,
+    "autoBattery": false,
+    "showDiag": true,
     "spaceDrift": false,
     "driftCruise": 80,
     "lockOrbitK": 8,
     "lookSens": 1,
+    "uiScrollSens": 0.7000000000000001,
     "defaultTimeScale": 1,
     "hudOpacity": 1,
     "hudScale": 1,
@@ -600,9 +682,18 @@
     "widgetBrackets": true,
     "pinDimEnabled": true,
     "pinDimScope": "planet",
-    "pinDimOpacity": 0.25,
-    "pinScale": 1.2,
+    "pinDimOpacity": 0.6000000000000001,
+    "pinScale": 1.25,
     "pinOutlineColor": "#D4AF37",
+    "nativeBg": "",
+    "nativeSurface": "",
+    "nativeText": "",
+    "nativeDim": "",
+    "nativeAccent": "",
+    "nativeFont": "",
+    "nativePlanetTheme": true,
+    "nativeLayers": true,
+    "nativeOpacity": 0.94,
     "glyphBg": "",
     "glyphBorder": "",
     "glyphOff": "",
