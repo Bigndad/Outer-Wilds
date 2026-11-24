@@ -27,14 +27,18 @@ Item {
     property real forecastTemp: Math.max(11, Math.min(18, innerHeight * 0.085))
     property real forecastIcon: Math.max(20, Math.min(32, innerHeight * 0.15))
     property real forecastTime: Math.max(9, Math.min(13, innerHeight * 0.065))
-    property int forecastCount: root.width >= 360 ? 4 : 3
+    property bool showFeelsLike: true
+    property bool showForecast: true
+    property int maxForecast: 4
+    property string accentHex: ""
+    property int forecastCount: Math.min(maxForecast, root.width >= 360 ? 4 : 3)
 
     property var weatherData: Weather.data
     property bool hasLoadedOnce: Weather.isReady
     property bool isLoading: Weather.isLoading || !Weather.isReady
 
     property string currentHex: Weather.currentHex
-    property color accentColor: (currentHex && currentHex.length === 7) ? currentHex : ThemeBackend.mauve
+    property color accentColor: root.accentHex !== "" ? root.accentHex : ((currentHex && currentHex.length === 7) ? currentHex : ThemeBackend.mauve)
 
     property var hourlyList: []
 
@@ -208,6 +212,7 @@ Item {
                     }
 
                     Text {
+                        visible: root.showFeelsLike
                         text: I18n.t("calendar.weather.feels") + " " + root.getFeelsLike()
                         font.family: ThemeBackend.fontFamily
                         font.pixelSize: root.textFeels
@@ -257,6 +262,7 @@ Item {
                 }
 
                 RowLayout {
+                    visible: root.showForecast
                     Layout.alignment: Qt.AlignBottom | Qt.AlignRight
                     spacing: Math.max(6, root.dynSpacing * 0.9)
 

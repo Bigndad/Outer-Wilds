@@ -24,6 +24,7 @@ Item {
     property var widgetData: null
     property var widget: null
     property string lyricsAlignment: "left"
+    property bool showArtBg: true
 
     function updateLyricsAlignment() {
         let w = root.widgetData || root.widget || (parent && (parent.widgetData || parent.widget || parent.item)) || null;
@@ -260,7 +261,7 @@ Item {
         Item {
             id: artMaskedContainer
             anchors.fill: parent
-            visible: Lyrics.isMediaActive && Boolean(MprisController.artUrl)
+            visible: root.showArtBg && Lyrics.isMediaActive && Boolean(MprisController.artUrl)
             layer.enabled: true
             layer.effect: MultiEffect {
                 maskEnabled: true

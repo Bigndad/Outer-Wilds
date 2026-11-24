@@ -1,21 +1,43 @@
 import QtQuick
 import ".."
 
-// Placeholder for planets whose role is not decided yet. Give it a name from the registry:
-//   { id: "gd_a", host: "giants_deep", source: "BlankWidget.qml", title: "GIANT'S DEEP A", ... }
-// Later, point `source` at the real widget file and delete this entry's title.
+// Placeholder / custom text label card.
 WidgetCard {
     id: w
     title: "UNASSIGNED"
     designW: 240
     designH: 110
 
-    Text {
-        anchors.centerIn: parent
-        text: "NO ROLE ASSIGNED"
-        color: w.cDim
-        font.family: "monospace"
-        font.pixelSize: Math.max(7, Math.round(12 * w.ui))
-        font.letterSpacing: 1.5 * w.ui
+    property var cfg: ({ label: "NO ROLE ASSIGNED", sublabel: "", textSize: 12,
+                         align: "center", textColor: "#8A7F66", font: "monospace" })
+
+    readonly property int hAlign: cfg.align === "left" ? Text.AlignLeft : (cfg.align === "right" ? Text.AlignRight : Text.AlignHCenter)
+
+    Column {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 4 * w.ui
+
+        Text {
+            width: parent.width
+            horizontalAlignment: w.hAlign
+            wrapMode: Text.Wrap
+            text: w.cfg.label !== undefined ? w.cfg.label : "NO ROLE ASSIGNED"
+            color: w.cfg.textColor || w.cDim
+            font.family: w.cfg.font || "monospace"
+            font.pixelSize: Math.max(7, Math.round((w.cfg.textSize || 12) * w.ui))
+            font.letterSpacing: 1.5 * w.ui
+        }
+        Text {
+            visible: (w.cfg.sublabel || "") !== ""
+            width: parent.width
+            horizontalAlignment: w.hAlign
+            wrapMode: Text.Wrap
+            text: w.cfg.sublabel || ""
+            color: w.cDim
+            font.family: w.cfg.font || "monospace"
+            font.pixelSize: Math.max(7, Math.round(10 * w.ui))
+        }
     }
 }

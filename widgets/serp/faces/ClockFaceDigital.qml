@@ -14,6 +14,10 @@ Item {
     property real minAspect: 0.8
     property real maxAspect: 2.8
     property bool isRound: false
+    property bool showDate: true
+    property string accentHex: ""
+    property string textHex: ""
+    property string fontOverride: ""
 
     readonly property bool isStacked: (width / height) < 1.25
 
@@ -49,12 +53,12 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     text: String(DateTime.hour).padStart(2, "0")
-                    font.family: ThemeBackend.fontFamily
+                    font.family: root.fontOverride !== "" ? root.fontOverride : ThemeBackend.fontFamily
                     font.pixelSize: height
                     fontSizeMode: Text.Fit
                     minimumPixelSize: 12
                     font.weight: Font.Normal
-                    color: ThemeBackend.onSurface ?? ThemeBackend.text
+                    color: root.textHex !== "" ? root.textHex : (ThemeBackend.onSurface ?? ThemeBackend.text)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -63,17 +67,18 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     text: String(DateTime.minute).padStart(2, "0")
-                    font.family: ThemeBackend.fontFamily
+                    font.family: root.fontOverride !== "" ? root.fontOverride : ThemeBackend.fontFamily
                     font.pixelSize: height
                     fontSizeMode: Text.Fit
                     minimumPixelSize: 12
                     font.weight: Font.Black
-                    color: ThemeBackend.primary ?? ThemeBackend.text
+                    color: root.accentHex !== "" ? root.accentHex : (ThemeBackend.primary ?? ThemeBackend.text)
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
 
                 Rectangle {
+                    visible: root.showDate
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: 4
                     implicitWidth: Math.max(dateLabelStacked.implicitWidth + 16, 40)
@@ -103,17 +108,18 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     text: DateTime.time
-                    font.family: ThemeBackend.fontFamily
+                    font.family: root.fontOverride !== "" ? root.fontOverride : ThemeBackend.fontFamily
                     font.pixelSize: height
                     fontSizeMode: Text.Fit
                     minimumPixelSize: 12
                     font.weight: Font.Black
-                    color: ThemeBackend.primary ?? ThemeBackend.text
+                    color: root.accentHex !== "" ? root.accentHex : (ThemeBackend.primary ?? ThemeBackend.text)
                     horizontalAlignment: Text.AlignRight
                     verticalAlignment: Text.AlignVCenter
                 }
 
                 Rectangle {
+                    visible: root.showDate
                     Layout.alignment: Qt.AlignVCenter
                     implicitWidth: Math.max(dateLabelWide.implicitWidth + 20, 48)
                     implicitHeight: Math.max(dateLabelWide.implicitHeight + 10, 26)

@@ -25,8 +25,10 @@ Item {
     property bool hasLoadedOnce: Weather.isReady
     property bool isLoading: Weather.isLoading || !Weather.isReady
 
+    property real pillAngle: 45
+    property string accentHex: ""
     property string currentHex: Weather.currentHex
-    property color accentColor: (currentHex && currentHex.length === 7) ? currentHex : ThemeBackend.mauve
+    property color accentColor: root.accentHex !== "" ? root.accentHex : ((currentHex && currentHex.length === 7) ? currentHex : ThemeBackend.mauve)
 
     property string tempNumber: {
         if (!Weather.isReady || Weather.currentTemp === "") {
@@ -49,7 +51,7 @@ Item {
         width: root.pillWidth
         height: root.pillLength
         radius: root.pillRadius
-        rotation: 45
+        rotation: root.pillAngle
         color: Qt.alpha(ThemeBackend.surface0, ThemeBackend.elementOpacity)
         antialiasing: true
 
@@ -61,7 +63,7 @@ Item {
 
         Item {
             anchors.fill: parent
-            rotation: -45
+            rotation: -root.pillAngle
             visible: root.isLoading
 
             LoaderIcon {
@@ -85,7 +87,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.top
                 anchors.verticalCenterOffset: root.pillRadius
-                rotation: -45
+                rotation: -root.pillAngle
 
                 Text {
                     width: parent.width
@@ -110,7 +112,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.bottom
                 anchors.verticalCenterOffset: -root.pillRadius
-                rotation: -45
+                rotation: -root.pillAngle
 
                 Item {
                     anchors.centerIn: parent

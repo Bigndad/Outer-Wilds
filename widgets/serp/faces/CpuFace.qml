@@ -4,6 +4,7 @@ import Quickshell
 
 UsageFaceBase {
     id: root
+    property string accentHex: ""
 
     property real rawCpu: isNaN(SysData.cpu) ? 0.0 : SysData.cpu / 100.0
     property real cpuUsage: rawCpu
@@ -15,7 +16,7 @@ UsageFaceBase {
         bgOpacity: ThemeBackend.elementOpacity
         value: root.cpuUsage
         colorBase: ThemeBackend.surface0
-        colorFill: Qt.lighter(ThemeBackend.mauve, 1.35)
+        colorFill: root.accentHex !== "" ? root.accentHex : Qt.lighter(ThemeBackend.mauve, 1.35)
         icon: String.fromCodePoint(0xF035B)
         title: I18n.t("quickactions.systemusage.cpu")
         valueText: Math.round(root.cpuUsage * 100) + "%"

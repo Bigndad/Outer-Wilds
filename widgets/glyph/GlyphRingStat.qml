@@ -2,7 +2,6 @@ import QtQuick
 import "."
 
 // Round LED-ring gauge: ring lit by f, dot-matrix number in the middle, caption under it.
-// Turns red at `warnAt` (the one red thing). Subclasses only set f / value / label.
 GlyphCard {
     id: w
     designW: 200
@@ -13,13 +12,17 @@ GlyphCard {
     property string value: "0"
     property string label: ""
     property real warnAt: 0.85
-    property color tone: f >= warnAt ? GlyphTheme.red : GlyphTheme.fg
+    property bool useWarnCfg: true
+    readonly property real effWarnAt: (useWarnCfg && cfg.warnAt !== undefined) ? (Number(cfg.warnAt) / 100) : warnAt
+    readonly property color normalTone: (cfg.ringColor && cfg.ringColor !== "") ? cfg.ringColor : GlyphTheme.fg
+    readonly property color warnTone: (cfg.warnColor && cfg.warnColor !== "") ? cfg.warnColor : GlyphTheme.red
+    property color tone: f >= effWarnAt ? warnTone : normalTone
 
     GlyphRing {
         anchors.fill: parent
         anchors.margins: 12
-        n: 44
-        dot: 7
+        n: Math.max(8, Math.round(w.cfg.ringDots || 44))
+        dot: w.cfg.dotSize || 7
         f: w.f
         on: w.tone
     }
@@ -34,7 +37,7 @@ GlyphCard {
         }
         GlyphLabel {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: w.label
+            text: (w.cfg.customLabel && w.cfg.customLabel !== "") ? w.cfg.customLabel : w.label
         }
     }
 }

@@ -15,6 +15,8 @@ Item {
     property bool isRound: false
 
     property var currentTime: new Date()
+    property string colorAHex: ""
+    property string colorBHex: ""
 
     Timer {
         interval: 1000
@@ -43,7 +45,7 @@ Item {
         minutes: root.minutesStr
         fitWidth: root.width * 0.94
         fitHeight: root.height * 0.94
-        colorA: ThemeBackend.onSurface ?? ThemeBackend.text
-        colorB: ThemeBackend.primary ?? ThemeBackend.mauve
+        colorA: root.colorAHex !== "" ? root.colorAHex : (ThemeBackend.onSurface ?? ThemeBackend.text)
+        colorB: root.colorBHex !== "" ? root.colorBHex : (ThemeBackend.primary ?? ThemeBackend.mauve)
     }
 }

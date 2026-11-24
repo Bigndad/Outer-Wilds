@@ -15,6 +15,7 @@ Item {
 
     property bool sineWave: true
     property real lineThickness: 8
+    property int lowWarn: 20
 
     property bool compactMode: Math.min(root.height, root.width) < Scaler.s(110)
 
@@ -25,7 +26,7 @@ Item {
     readonly property color batColor: {
         if (!hasBattery) return ThemeBackend.subtext0;
         if (isCharging) return ThemeBackend.green;
-        if (batCapacity <= 20) return ThemeBackend.red;
+        if (batCapacity <= root.lowWarn) return ThemeBackend.red;
         return ThemeBackend.blue;
     }
 

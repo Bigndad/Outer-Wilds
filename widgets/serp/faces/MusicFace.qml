@@ -25,10 +25,18 @@ Item {
     property real titleSize: Math.max(10, Math.min(24, root.height * 0.14))
     property real subSize: Math.max(8, Math.min(16, root.height * 0.1))
 
+    property bool optArt: true
+    property bool optTime: true
+    property bool optArtist: true
+    property bool optBars: true
     property bool showArt: true
     property bool showTime: true
     property bool showArtist: true
     property bool showBars: true
+    onOptArtChanged: updateVisibility()
+    onOptTimeChanged: updateVisibility()
+    onOptArtistChanged: updateVisibility()
+    onOptBarsChanged: updateVisibility()
 
     property bool isVisVisible: visible && showBars
 
@@ -47,17 +55,10 @@ Item {
     }
 
     function updateVisibility() {
-        if (height >= 65 && width >= 180) showArt = true;
-        else if (height <= 58 || width <= 170) showArt = false;
-
-        if (height >= 85) showTime = true;
-        else if (height <= 76) showTime = false;
-
-        if (height >= 65) showArtist = true;
-        else if (height <= 58) showArtist = false;
-
-        if (height >= 55) showBars = true;
-        else if (height <= 48) showBars = false;
+        showArt = optArt && height >= 62 && width >= 176;
+        showTime = optTime && height >= 82;
+        showArtist = optArtist && height >= 62;
+        showBars = optBars && height >= 52;
     }
 
     Component.onCompleted: {

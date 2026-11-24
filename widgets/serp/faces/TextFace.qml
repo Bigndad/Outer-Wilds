@@ -19,6 +19,9 @@ Item {
 
     property string textContent: ""
     property string fontFamily: ""
+    property string textHex: ""
+    property bool showShadow: true
+    property string align: "center"
 
     readonly property string fontPath: root.fontFamily !== "" && ThemeBackend.availableFontPaths ? (ThemeBackend.availableFontPaths[root.fontFamily.toLowerCase()] || "") : ""
 
@@ -37,13 +40,13 @@ Item {
         fontSizeMode: Text.Fit
         minimumPixelSize: 8
         font.weight: Font.Bold
-        color: ThemeBackend.text
+        color: root.textHex !== "" ? root.textHex : ThemeBackend.text
         opacity: root.isEmpty ? 0.4 : 1.0
         wrapMode: Text.WordWrap
-        horizontalAlignment: Text.AlignHCenter
+        horizontalAlignment: root.align === "left" ? Text.AlignLeft : (root.align === "right" ? Text.AlignRight : Text.AlignHCenter)
         verticalAlignment: Text.AlignVCenter
 
-        layer.enabled: true
+        layer.enabled: root.showShadow
         layer.effect: MultiEffect {
             shadowEnabled: true
             shadowColor: "#000000"

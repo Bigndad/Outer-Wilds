@@ -22,15 +22,15 @@ Item {
     // ---- tuning knobs -------------------------------------------------
     readonly property real u: Math.max(0.6, height / 1080.0)   // HUD scale: 1.0 at 1080p
     readonly property real margin: 48 * u
-    readonly property real gaugeSize: 320 * u
-    readonly property real globeSize: 168 * u
-    readonly property real thrustSize: 150 * u
+    readonly property real gaugeSize: 320 * u * WidgetConfig.hudGaugeScale
+    readonly property real globeSize: 168 * u * WidgetConfig.hudGlobeScale
+    readonly property real thrustSize: 150 * u * WidgetConfig.hudThrustScale
     readonly property real maxSpeed: 700.0                     // camera speed that pegs the indicator
-    readonly property string fontFamily: "monospace"
-    readonly property color cCyan: "#6FEAEE"
+    readonly property string fontFamily: WidgetConfig.hudFont !== "" ? WidgetConfig.hudFont : "monospace"
+    readonly property color cCyan: WidgetConfig.hudGlobeColor !== "" ? WidgetConfig.hudGlobeColor : "#6FEAEE"
     readonly property color cGold: "#EBAE4E"
     readonly property color cOrange: "#E98B55"
-    readonly property color cText: "#F2EBDD"
+    readonly property color cText: WidgetConfig.hudTextColor !== "" ? WidgetConfig.hudTextColor : "#F2EBDD"
     readonly property color cDim: "#99F2EBDD"
 
     // key prompts shown top-right. Add a row = add one line.
@@ -128,6 +128,7 @@ Item {
     // =================================================================
     Item {
         id: gauges
+        visible: WidgetConfig.hudShowGauges
         x: hud.margin
         y: hud.margin * 0.85
         width: hud.gaugeSize
@@ -173,6 +174,7 @@ Item {
 
         // astronaut: upright, smaller than the frame so it clears the arcs and markers
         Item {
+            visible: WidgetConfig.hudShowAstronaut
             anchors.centerIn: parent
             width: parent.width * 0.73
             height: parent.height * 0.73
@@ -193,6 +195,7 @@ Item {
             color: hud.cText
             font.family: hud.fontFamily
             font.pixelSize: Math.round(14 * hud.u)
+            visible: WidgetConfig.hudShowGaugeLabels
             text: "RAM " + Math.round(gauges.dRam * 100) + "%"
         }
 
@@ -209,6 +212,7 @@ Item {
             color: hud.cText
             font.family: hud.fontFamily
             font.pixelSize: Math.round(14 * hud.u)
+            visible: WidgetConfig.hudShowGaugeLabels
             text: "CPU " + Math.round(gauges.dCpu * 100) + "%"
         }
 
@@ -226,6 +230,7 @@ Item {
             color: hud.cText
             font.family: hud.fontFamily
             font.pixelSize: Math.round(14 * hud.u)
+            visible: WidgetConfig.hudShowGaugeLabels
             text: (gauges.dBat * 100).toFixed(1) + " %"
         }
     }
@@ -235,6 +240,7 @@ Item {
     // =================================================================
     Item {
         id: globe
+        visible: WidgetConfig.hudShowGlobe
         x: gauges.x + (gauges.width - hud.globeSize) / 2
         y: hud.height * 0.45
         width: hud.globeSize
@@ -246,7 +252,7 @@ Item {
             id: spinTimer
             interval: 33
             repeat: true
-            running: (hud.dataSrc ? hud.dataSrc.audioActive : false) && hud.visible
+            running: (hud.dataSrc ? hud.dataSrc.audioActive : false) && hud.visible && globe.visible
             property real last: 0
             onRunningChanged: last = Date.now()
             onTriggered: {
@@ -279,6 +285,7 @@ Item {
         }
         // stand under the globe
         Rectangle {
+            visible: WidgetConfig.hudShowGlobeStand
             x: parent.width / 2 - width / 2
             y: parent.height + 2 * hud.u
             width: Math.max(2, 3 * hud.u)
@@ -295,12 +302,13 @@ Item {
     // =================================================================
     Item {
         id: thrust
+        visible: WidgetConfig.hudShowThrust
         x: gauges.x + (gauges.width - hud.thrustSize) / 2 + 24 * hud.u
         y: hud.height - hud.thrustSize - hud.margin * 1.5
         width: hud.thrustSize
         height: hud.thrustSize
 
-        readonly property color cAxis: "#C6F6F1"
+        readonly property color cAxis: WidgetConfig.hudThrustColor !== "" ? WidgetConfig.hudThrustColor : "#C6F6F1"
         readonly property real diagAng: 42
         readonly property real diagC: Math.cos(diagAng * Math.PI / 180)
         readonly property real diagS: Math.sin(diagAng * Math.PI / 180)
@@ -322,7 +330,7 @@ Item {
         Timer {
             interval: 33
             repeat: true
-            running: hud.rig !== null && hud.visible
+            running: hud.rig !== null && hud.visible && thrust.visible
             property real lx: 0
             property real ly: 0
             property real lz: 0
@@ -445,6 +453,7 @@ Item {
             color: hud.cText
             font.family: hud.fontFamily
             font.pixelSize: Math.round(13 * hud.u)
+            visible: WidgetConfig.hudShowSpeed
             text: "SPEED  " + thrust.speedInt
         }
     }
@@ -458,7 +467,7 @@ Item {
         anchors.rightMargin: hud.margin
         y: hud.margin * 0.85
         spacing: 10 * hud.u
-        opacity: hud.promptsShown ? 1.0 : 0.0
+        opacity: (WidgetConfig.hudShowPrompts && hud.promptsShown) ? 1.0 : 0.0
         visible: opacity > 0.01
         Behavior on opacity { NumberAnimation { duration: 160 } }
 

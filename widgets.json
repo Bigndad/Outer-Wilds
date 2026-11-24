@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "globalSpeed": 1,
+  "globalSpeed": 0.75,
   "overrides": {
     "sun_clock": {
       "removed": true
@@ -126,7 +126,8 @@
       "enabled": false
     },
     "x24": {
-      "size": 0.7000000000000001
+      "size": 0.7000000000000001,
+      "speed": -0.39
     }
   },
   "extras": [
@@ -544,6 +545,10 @@
       }
     }
   ],
+  "pinned": {
+    "x22": true
+  },
+  "presets": {},
   "keys": {
     "launcher": "Alt+A",
     "rumor": "R"
@@ -552,13 +557,34 @@
     "loopPanel": false,
     "shrinkFar": true,
     "bakeW": 2048,
-    "hud": false,
+    "hud": true,
     "orbits": true,
     "labels": true,
     "reticles": true,
     "fpsIdle": 30,
+    "fpsActive": 60,
+    "spaceDrift": false,
+    "driftCruise": 80,
+    "lockOrbitK": 8,
+    "lookSens": 1,
+    "defaultTimeScale": 1,
     "hudOpacity": 1,
     "hudScale": 1,
+    "hudShowGauges": true,
+    "hudShowAstronaut": true,
+    "hudShowGaugeLabels": true,
+    "hudGaugeScale": 1,
+    "hudShowGlobe": false,
+    "hudShowGlobeStand": true,
+    "hudGlobeScale": 1,
+    "hudGlobeColor": "#6FEAEE",
+    "hudShowThrust": false,
+    "hudShowSpeed": true,
+    "hudThrustScale": 1,
+    "hudThrustColor": "#C6F6F1",
+    "hudShowPrompts": true,
+    "hudTextColor": "#F2EBDD",
+    "hudFont": "monospace",
     "orbitOpacity": 1,
     "orbitWidth": 1.2,
     "labelSize": 1,
@@ -566,6 +592,32 @@
     "reticleOpacity": 1,
     "reticleWidth": 1,
     "loopPanelOpacity": 1,
-    "loopPanelScale": 1
+    "loopPanelScale": 1,
+    "widgetOpacity": 1,
+    "widgetRadius": 6,
+    "widgetAccent": "#D5B038",
+    "widgetHoldOnHover": true,
+    "widgetBrackets": true,
+    "pinDimEnabled": true,
+    "pinDimScope": "planet",
+    "pinDimOpacity": 0.25,
+    "pinScale": 1.2,
+    "pinOutlineColor": "#D4AF37",
+    "glyphBg": "",
+    "glyphBorder": "",
+    "glyphOff": "",
+    "glyphFg": "",
+    "glyphAccent": "",
+    "glyphFont": "",
+    "lucidBg": "",
+    "lucidText": "",
+    "lucidAccent": "",
+    "lucidFont": "",
+    "serpSurface": "",
+    "serpText": "",
+    "serpAccent": "",
+    "serpOpacity": 0.92,
+    "serpRadius": 8,
+    "serpFont": ""
   }
 }

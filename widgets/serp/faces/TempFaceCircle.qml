@@ -4,6 +4,7 @@ import Quickshell
 
 UsageFaceCircleBase {
     id: root
+    property string accentHex: ""
 
     property real rawTemp: isNaN(SysData.temp) ? 0.0 : SysData.temp
     property real tempC: rawTemp
@@ -12,7 +13,7 @@ UsageFaceCircleBase {
     SystemUsageCircle {
         anchors.fill: parent
         value: Math.max(0.0, Math.min(1.0, root.tempC / 100.0))
-        accentColor: ThemeBackend.mauve
+        accentColor: root.accentHex !== "" ? root.accentHex : ThemeBackend.mauve
         icon: String.fromCodePoint(0xF050F)
         title: I18n.t("quickactions.systemusage.temp")
         valueText: Math.round(root.tempC) + "°"

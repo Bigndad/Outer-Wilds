@@ -2,9 +2,7 @@ import QtQuick
 import "../.."
 import "."
 
-// Focus timer on an LED ring. The ring drains while it runs and turns red (the one live thing);
-// click the digits to start / pause, -5 / +5 change the length while it is not running, RESET refills.
-// At zero it blinks red for a few seconds. (Pure QML timer, no notification is sent.)
+// Focus timer on an LED ring.
 GlyphCard {
     id: w
     designW: 240
@@ -17,6 +15,16 @@ GlyphCard {
     property bool done: false
     property real endAt: 0
     property bool blink: false
+    readonly property int stepMin: Math.max(1, Math.round(cfg.stepMin || 5))
+    readonly property color liveCol: (cfg.activeColor && cfg.activeColor !== "") ? cfg.activeColor : GlyphTheme.red
+
+    onCfgChanged: {
+        const m = Number(cfg.defaultMin);
+        if (isFinite(m) && m >= 1 && !running) {
+            const sec = Math.round(m) * 60;
+            if (total !== sec) { total = sec; remain = sec; done = false; }
+        }
+    }
 
     function startPause() {
         if (running) { running = false; return; }
@@ -54,12 +62,12 @@ GlyphCard {
         onTriggered: { w.blink = !w.blink; if (++count >= 12) { stop(); w.blink = false; w.done = false; } }
     }
 
-    readonly property color tone: (running || (done && blink)) ? GlyphTheme.red : GlyphTheme.fg
+    readonly property color tone: (running || (done && blink)) ? w.liveCol : GlyphTheme.fg
 
     GlyphRing {
         anchors.fill: parent
         anchors.margins: 14
-        n: 60
+        n: Math.max(12, Math.round(w.cfg.ringDots || 60))
         dot: 6
         f: w.total > 0 ? w.remain / w.total : 0
         on: w.tone
@@ -84,7 +92,7 @@ GlyphCard {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 14
             Repeater {
-                model: [ { t: "\u2212 5", a: "m" }, { t: w.running ? "PAUSE" : "START", a: "s" }, { t: "+ 5", a: "p" } ]
+                model: [ { t: "\u2212 " + w.stepMin, a: "m" }, { t: w.running ? "PAUSE" : "START", a: "s" }, { t: "+ " + w.stepMin, a: "p" } ]
                 Text {
                     required property var modelData
                     text: modelData.t
@@ -94,7 +102,7 @@ GlyphCard {
                     font.letterSpacing: 1.2
                     MouseArea {
                         anchors.fill: parent; anchors.margins: -8
-                        onClicked: modelData.a === "m" ? w.bump(-5) : modelData.a === "p" ? w.bump(5) : w.startPause()
+                        onClicked: modelData.a === "m" ? w.bump(-w.stepMin) : modelData.a === "p" ? w.bump(w.stepMin) : w.startPause()
                     }
                 }
             }

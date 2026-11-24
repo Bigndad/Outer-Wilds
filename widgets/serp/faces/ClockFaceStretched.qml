@@ -29,7 +29,9 @@ Item {
     readonly property real contentWidth: cw * (4 + colonRatio) + gap * 4
     readonly property real stroke: cw * 0.24
     readonly property var chars: (String(DateTime.hour).padStart(2, "0") + ":" + String(DateTime.minute).padStart(2, "0")).split("")
-    readonly property real fillOpacity: 0.78
+    property real digitOpacity: 0.78
+    property string textHex: ""
+    readonly property real fillOpacity: digitOpacity
 
     function roundRect(x0, y0, x1, y1, r) {
         return "M" + (x0 + r) + " " + y0
@@ -147,7 +149,7 @@ Item {
         height: root.areaHeight
 
         Glyphs {
-            col: ThemeBackend.text
+            col: root.textHex !== "" ? root.textHex : ThemeBackend.text
             opacity: root.fillOpacity
             layer.enabled: true
             layer.smooth: true

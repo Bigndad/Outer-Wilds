@@ -1,23 +1,41 @@
 import QtQuick
 import ".."
 
-// One widget orbiting a planet. It is a plain 2D item that this script places each frame by
-// projecting a point on a 3D orbit (same projection as the planets), fading it by focus,
-// occlusion (behind its planet) and the supernova. No Quickshell / Hyprland types in here.
+// One widget orbiting a planet. Projects a point on a 3D orbit, fades by focus / occlusion /
+// supernova / pinning, and forwards cfg & cardStyle live. No Quickshell / Hyprland types in here.
 Item {
     id: slot
 
     property var rig: null
     property var def: null
-    property real speedScale: 1.0    // global orbit speed multiplier (set by WidgetLayer)
+    property real speedScale: 1.0
 
     property real angle: 0
-    property real hold: 0           // 0..1: how paused the orbit is (hover / typing)
-    property real presence: 0       // 0..1: shown by focus / "always"
-    property real occlusion: 1      // 0..1: 0 while hidden behind its own planet
+    property real hold: 0
+    property real presence: 0
+    property real occlusion: 1
     property int missCount: 0
     property var hookedRig: null
-    readonly property bool held: blocker.containsMouse || (loader.item !== null && loader.item.wantsHold === true)
+    readonly property bool isPinned: slot.def ? WidgetConfig.isPinned(slot.def.id) : false
+    property real pinMultScale: isPinned ? WidgetConfig.pinScale : 1.0
+    Behavior on pinMultScale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    readonly property bool isCircular: {
+        const it = loader.item;
+        if (it && (it.round === true || it.isRound === true)) return true;
+        const src = slot.def ? String(slot.def.source || "") : "";
+        return /(SunClock|AshTwinBattery|DarkBrambleDisc|QuantumMoonWeather|ImageRound|SunStationCpu|HollowsLanternTemp)\.qml$/.test(src);
+    }
+    readonly property real outlineRadius: {
+        if (isCircular) return Math.min(width + 6, height + 6) / 2;
+        const it = loader.item;
+        const ui = (it && it.ui > 0) ? it.ui : 1.0;
+        if (slot.def && slot.def.cardRadius >= 0) return slot.def.cardRadius * ui + 3;
+        const src = slot.def ? String(slot.def.source || "") : "";
+        if (src.startsWith("glyph/")) return 28 * ui + 3;
+        if (src.startsWith("serp/")) return WidgetConfig.serpRadius * ui + 3;
+        return WidgetConfig.widgetRadius * ui + 3;
+    }
+    readonly property bool held: (WidgetConfig.widgetHoldOnHover && (!slot.def || slot.def.holdOnHover !== false) && blocker.containsMouse) || (loader.item !== null && loader.item.wantsHold === true)
 
     width: loader.item ? loader.item.width : 0
     height: loader.item ? loader.item.height : 0
@@ -39,7 +57,6 @@ Item {
         const dt = (rg.lastDt > 0) ? Math.min(rg.lastDt, 0.1) : 1 / 60;
         const o = slot.def.orbit;
 
-        // orbit keeps turning even while hidden; hover / typing eases it to a stop
         hold += ((held ? 1 : 0) - hold) * Math.min(1, 6 * dt);
         angle += o.speed * speedScale * (1 - hold) * dt;
 
@@ -51,29 +68,32 @@ Item {
                 console.warn("WidgetSlot " + slot.def.id + ": host '" + slot.def.host + "' not in rig.bodyCoords / projectedMap");
         }
 
+        const pinned = WidgetConfig.pinnedIds[slot.def.id] === true;
+        const shouldDim = WidgetConfig.pinDimEnabled && !pinned && (
+            WidgetConfig.pinDimScope === "everywhere"
+                ? WidgetConfig.pinnedCount > 0
+                : WidgetConfig.pinnedHosts[slot.def.host] === true
+        );
+
         let target = 0;
         if (hostOk) {
-            if (slot.def.show === "always" || WidgetConfig.previewId === slot.def.id) target = 1;   // previewId: the widget being edited in the settings panel
+            if (pinned || slot.def.show === "always" || WidgetConfig.previewId === slot.def.id) target = 1;
             else target = Math.max(rg.activeFocusId === slot.def.host ? 1 : 0, clamp((proj.screenR - 150) / 90, 0, 1));
         }
         presence += (target - presence) * Math.min(1, 7 * dt);
 
-        // the red giant swallows everything just before the supernova; back after the reset
         const nova = rg.loopTime < 1284 ? 1.0 : clamp((1290 - rg.loopTime) / 6, 0, 1);
         if (!hostOk || presence < 0.004 || nova <= 0) { slot.visible = false; return; }
 
         const hostR = slot.def.host === "sun" ? rg.sunRadius : host.r;
-        // a widget moved to another planet from the settings panel: scale its absolute sizes by (the square root of) the radius ratio
         let rf = 1;
         if (slot.def.baseHost && slot.def.baseHost !== slot.def.host) {
             const bb = rg.bodyCoords[slot.def.baseHost];
             const bR = slot.def.baseHost === "sun" ? rg.sunRadius : (bb ? bb.r : 0);
-            if (bR > 0) rf = Math.sqrt(hostR / bR);   // sqrt: halfway between "same size" and "same proportions"
+            if (bR > 0) rf = Math.sqrt(hostR / bR);
         }
         const R = hostR * o.k + o.add * rf;
         const ca = Math.cos(angle), sa = Math.sin(angle);
-        // circle in its plane, tilted about X, then the whole plane turned about Y by `node`
-        // (node = 0 is the old behaviour), so several widgets on one planet can use different axes
         const tx = R * ca;
         const ty = R * sa * Math.sin(o.tilt);
         const tz = R * sa * Math.cos(o.tilt);
@@ -88,24 +108,20 @@ Item {
         const p = rg.project3D(wx, wy, wz, w * 0.5, h * 0.5, fov);
         if (!p) { slot.visible = false; return; }
 
-        // fully off-screen (or flung out by the projection near the camera): skip all the work below
         const mx = slot.width * 0.5 + 40, my = slot.height * 0.5 + 40;
         if (p.sx < -mx || p.sx > w + mx || p.sy < -my || p.sy > h + my) { slot.visible = false; return; }
 
-        // size: world width -> pixels, clamped, quantised so text stays crisp; the rest is a tiny scale
         const sc = Math.min(w, h) / 1080;
         const worldW = slot.def.worldWk !== undefined ? slot.def.worldWk * hostR : slot.def.worldW * rf;
         const raw = p.scale * worldW / item.designW;
-        // far away the widgets shrink much further than the normal floor (Control Centre > OPTIONS > "Shrink when far away")
         const farK = WidgetConfig.shrinkFar ? 0.4 : 1.0;
         const minUi = (slot.def.minUi !== undefined ? slot.def.minUi : 0.4) * sc * farK;
         const maxUi = (slot.def.maxUi !== undefined ? slot.def.maxUi : 1.5) * sc;
         const uiRaw = clamp(raw, minUi, maxUi);
         const q = Math.max(0.2, Math.round(uiRaw * 24) / 24);
         if (item.ui !== q) item.ui = q;
-        slot.scale = uiRaw / q;
+        slot.scale = (uiRaw / q) * slot.pinMultScale;
 
-        // behind its planet -> fade out
         let occ = 1;
         if (p.depth > proj.depth) {
             const dist = Math.hypot(p.sx - proj.sx, p.sy - proj.sy);
@@ -113,7 +129,9 @@ Item {
         }
         occlusion += (occ - occlusion) * Math.min(1, 12 * dt);
 
-        const op = presence * occlusion * nova;
+        const pinMult = shouldDim ? WidgetConfig.pinDimOpacity : 1.0;
+        const userOp = (slot.def && slot.def.opacity !== undefined ? slot.def.opacity : 1.0) * WidgetConfig.widgetOpacity;
+        const op = presence * occlusion * nova * userOp * pinMult;
         slot.opacity = op;
         slot.visible = op > 0.01;
         slot.x = p.sx - slot.width * 0.5;
@@ -121,7 +139,6 @@ Item {
         slot.z = -p.depth;
     }
 
-    // (re)connects to the rig's frame signal whenever slot.rig changes, so creation order never matters
     function hook() {
         if (hookedRig === rig) return;
         if (hookedRig) hookedRig.frameUpdated.disconnect(slot.tick);
@@ -135,28 +152,62 @@ Item {
     }
     Component.onDestruction: { if (hookedRig) hookedRig.frameUpdated.disconnect(slot.tick); }
 
-    // swallows mouse so clicking / dragging a widget never turns the camera or clears the lock
+    // Swallows mouse on bare card areas; double-click toggles pin, Alt+click passes fly-in through.
     MouseArea {
         id: blocker
         anchors.fill: parent
-        enabled: slot.opacity > 0.35
+        enabled: slot.opacity > 0.12
         hoverEnabled: true
         acceptedButtons: Qt.AllButtons
         onWheel: (wheel) => { wheel.accepted = true; }
-        // A double-click on a bare part of a card (anything the card's own controls don't use) still flies in
-        // to the planet that is behind the cursor, so widgets never block that gesture.
+        onClicked: (mouse) => {
+            if (mouse.button === Qt.LeftButton && (mouse.modifiers & Qt.AltModifier)) {
+                if (slot.rig && typeof slot.rig.flyInAt === "function") {
+                    const p = blocker.mapToItem(slot.rig, mouse.x, mouse.y);
+                    slot.rig.flyInAt(p.x, p.y);
+                }
+            } else if (mouse.button === Qt.RightButton && slot.rig && slot.rig.lockedPlanetId === "" && slot.rig.targetedPlanetId !== "") {
+                slot.rig.flyTo(slot.rig.targetedPlanetId);
+            }
+        }
         onDoubleClicked: (mouse) => {
-            if (mouse.button !== Qt.LeftButton || !slot.rig || typeof slot.rig.flyInAt !== "function") return;
-            const p = blocker.mapToItem(slot.rig, mouse.x, mouse.y);
+            if (mouse.button !== Qt.LeftButton || (mouse.modifiers & Qt.AltModifier)) return;
+            if (slot.def) WidgetConfig.togglePin(slot.def.id);
+        }
+    }
+
+    // Alt+click anywhere on the widget (even over clickable widgets) passes fly-in through to the planet behind it.
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        acceptedModifiers: Qt.AltModifier
+        onTapped: (eventPoint) => {
+            if (!slot.rig || typeof slot.rig.flyInAt !== "function") return;
+            const p = slot.mapToItem(slot.rig, eventPoint.position.x, eventPoint.position.y);
             slot.rig.flyInAt(p.x, p.y);
         }
     }
 
-    // widget options (WidgetConfig.cfg) -> the widget's `cfg` property, live as the panel edits them
     function pushCfg() {
-        if (loader.item && loader.item.cfg !== undefined && slot.def && slot.def.cfg) loader.item.cfg = slot.def.cfg;
+        if (!loader.item || !slot.def) return;
+        if (loader.item.cfg !== undefined && slot.def.cfg) loader.item.cfg = slot.def.cfg;
+        if (loader.item.cardStyle !== undefined) {
+            loader.item.cardStyle = {
+                bg: slot.def.cardBg || "",
+                accent: slot.def.cardAccent || "",
+                border: slot.def.cardBorder || "",
+                radius: slot.def.cardRadius !== undefined ? slot.def.cardRadius : -1,
+                brackets: (slot.def.showBrackets !== false) && WidgetConfig.widgetBrackets,
+                title: slot.def.customTitle || "",
+                globalRadius: WidgetConfig.widgetRadius,
+                globalAccent: WidgetConfig.widgetAccent
+            };
+        }
     }
     onDefChanged: pushCfg()
+    Connections {
+        target: WidgetConfig
+        function onRevisionChanged() { slot.pushCfg(); }
+    }
 
     Loader {
         id: loader
@@ -172,5 +223,20 @@ Item {
                 if (slot.def.settings) item.pluginSettings = slot.def.settings;
             }
         }
+    }
+
+    // Pinned highlight outline (matches circular or rounded card shape)
+    Rectangle {
+        z: 99
+        anchors.fill: parent
+        anchors.margins: -3
+        radius: slot.outlineRadius
+        antialiasing: true
+        color: "transparent"
+        border.width: 2
+        border.color: WidgetConfig.pinOutlineColor
+        opacity: slot.isPinned ? 0.95 : 0.0
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
     }
 }

@@ -4,6 +4,7 @@ import Quickshell
 
 UsageFaceBase {
     id: root
+    property string accentHex: ""
 
     property real rawRam: isNaN(SysData.ramPercent) ? 0.0 : SysData.ramPercent / 100.0
     property real ramUsage: rawRam
@@ -19,7 +20,7 @@ UsageFaceBase {
         bgOpacity: ThemeBackend.elementOpacity
         value: root.ramUsage
         colorBase: ThemeBackend.surface0
-        colorFill: Qt.lighter(ThemeBackend.mauve, 1.15)
+        colorFill: root.accentHex !== "" ? root.accentHex : Qt.lighter(ThemeBackend.mauve, 1.15)
         icon: String.fromCodePoint(0xF035C)
         title: I18n.t("quickactions.systemusage.ram")
         valueText: root.ramUsedGb.toFixed(1) + "G"

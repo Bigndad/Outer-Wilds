@@ -15,9 +15,14 @@ Item {
     property bool isRound: false
 
     readonly property bool isStacked: (width / height) < 1.25
-    readonly property color hourColor: ThemeBackend.mauve
-    readonly property color minuteColor: ThemeBackend.text
-    readonly property color dateColor: ThemeBackend.subtext0
+    property bool showDate: true
+    property string hourHex: ""
+    property string minuteHex: ""
+    property string dateHex: ""
+    property string fontOverride: ""
+    readonly property color hourColor: hourHex !== "" ? hourHex : ThemeBackend.mauve
+    readonly property color minuteColor: minuteHex !== "" ? minuteHex : ThemeBackend.text
+    readonly property color dateColor: dateHex !== "" ? dateHex : ThemeBackend.subtext0
     readonly property string stackedDateText: root.meridiemText !== "" ? root.meridiemText + "  ·  " + root.dateText : root.dateText
 
     property var currentTime: (typeof DateTime !== "undefined" && DateTime.now) ? DateTime.now : new Date()
@@ -42,7 +47,7 @@ Item {
     }
 
     component ShadowText: Text {
-        font.family: ThemeBackend.fontFamily
+        font.family: root.fontOverride !== "" ? root.fontOverride : ThemeBackend.fontFamily
         font.weight: Font.Bold
 
         Text {
@@ -81,6 +86,7 @@ Item {
         }
 
         ShadowText {
+            visible: root.showDate
             Layout.alignment: Qt.AlignHCenter
             text: root.stackedDateText
             color: root.dateColor
@@ -130,6 +136,7 @@ Item {
         }
 
         ShadowText {
+            visible: root.showDate
             Layout.alignment: Qt.AlignHCenter
             text: root.dateText
             color: root.dateColor

@@ -24,7 +24,7 @@ Item {
     // --- 22-MINUTE LOOP STATE ---
     property real loopTime: 0.0
     readonly property real maxLoopTime: 1320.0
-    property real timeScale: 1.0
+    property real timeScale: WidgetConfig.defaultTimeScale
     property bool isInteracting: false
     signal frameUpdated()        // end of every frame: the orbiting widgets reposition on this
     property real lastDt: 0.016
@@ -34,6 +34,7 @@ Item {
     // fpsIdle. Skipped frames change nothing, so Qt Quick renders nothing and the GPU sits idle.
     // Any input or camera motion runs at full display rate. fpsIdle: 0 = off (always full rate).
     property real fpsIdle: WidgetConfig.fpsIdle
+    property real fpsActive: WidgetConfig.fpsActive
     property real _acc: 0.0
     function _heldAny() { for (const k in actDown) if (actDown[k] === true) return true; return false; }
     function _busy() {
@@ -105,8 +106,8 @@ Item {
 
     // --- SPACE DRIFT ---
     // Ctrl toggles drift off (= the old flight model: thrust, then the ship stops by itself).
-    property bool spaceDrift: true
-    readonly property real driftCruise: 80.0     // relaxed coasting speed in units/s (everything below scales with it)
+    readonly property bool spaceDrift: WidgetConfig.spaceDrift
+    readonly property real driftCruise: WidgetConfig.driftCruise
     property var _dwell: ({})                    // seconds spent inside each planet's capture zone
     property real _driftGrace: 0.0               // after you thrust, the governor leaves your speed alone for a while
     // 0..1, "actively travelling": while you thrust (or scroll) the Sun keep-out, the outer wall and the vertical band
@@ -114,7 +115,7 @@ Item {
     property real _pushFree: 0.0
     // distance the camera settles at when you lock onto a planet (double-click / Alt+click): max(radius * K, MIN).
     // Was 4.2 / 220; bigger = a calmer, wider orbit. You can still scroll/W in closer.
-    readonly property real lockOrbitK: 6.5
+    readonly property real lockOrbitK: WidgetConfig.lockOrbitK
     readonly property real lockOrbitMin: 360.0
 
     Keys.onPressed: (event) => {
@@ -123,7 +124,7 @@ Item {
         if (a !== "") { heldBy[event.key] = a; actDown[a] = true; }
         if (Keybinds.matches("drift", event)) {
             if (Keybinds.isLone(Keybinds.seq("drift"))) root._tapKey = event.key;      // toggles on release (see below)
-            else spaceDrift = !spaceDrift;
+            else WidgetConfig.setUiOpt("spaceDrift", !WidgetConfig.spaceDrift);
         } else {
             root._tapKey = 0;                  // another key was pressed: that Ctrl was part of a combo, not a tap
         }
@@ -136,7 +137,7 @@ Item {
         if (event.isAutoRepeat) return;
         const a = heldBy[event.key];
         if (a !== undefined) { actDown[a] = false; delete heldBy[event.key]; }
-        if (root._tapKey !== 0 && event.key === root._tapKey) { root._tapKey = 0; spaceDrift = !spaceDrift; }
+        if (root._tapKey !== 0 && event.key === root._tapKey) { root._tapKey = 0; WidgetConfig.setUiOpt("spaceDrift", !WidgetConfig.spaceDrift); }
     }
 
     // called by WidgetSlot when a double-click lands on dead card area, so widgets never block the fly-in
@@ -635,11 +636,14 @@ Item {
     FrameAnimation {
         running: root.active && NoctaliaBridge.desktopVisible
         onTriggered: {
-            if (root.fpsIdle > 0) {
+            const idleCap = (root.fpsIdle > 0 && root.fpsActive > 0) ? Math.min(root.fpsIdle, root.fpsActive)
+                          : (root.fpsIdle > 0 ? root.fpsIdle : root.fpsActive);
+            const cap = root._busy() ? root.fpsActive : idleCap;
+            if (cap > 0) {
                 root._acc += frameTime;
-                if (root._acc < 1.0 / root.fpsIdle - 0.002 && !root._busy()) return;
+                if (root._acc < 1.0 / cap - 0.002) return;
             }
-            let dt = Math.min(root.fpsIdle > 0 ? root._acc : frameTime, 0.05);
+            let dt = Math.min(cap > 0 ? root._acc : frameTime, 0.05);
             root._acc = 0.0;
 
             if (!(root.isInteracting && root.loopTime >= 1288.0)) {
@@ -1226,7 +1230,7 @@ Item {
                 }
 
                 // When locked onto a planet, dragging orbits around it; in free-flight, dragging turns the camera
-                let sens = root.lockedPlanetId !== "" ? 0.0055 : 0.0045;
+                let sens = (root.lockedPlanetId !== "" ? 0.0055 : 0.0045) * WidgetConfig.lookSens;
                 root.targetYaw -= dx * sens;
                 root.targetPitch = Math.max(-1.48, Math.min(1.48, root.targetPitch - dy * sens));
 
@@ -1250,8 +1254,12 @@ Item {
             dragged = false;
 
             if (mouse.button === Qt.RightButton) {
-                root.lockedPlanetId = "";
-                root.targetedPlanetId = "";
+                if (root.lockedPlanetId === "" && root.targetedPlanetId !== "") {
+                    engageAutopilot(root.targetedPlanetId);
+                } else {
+                    root.lockedPlanetId = "";
+                    root.targetedPlanetId = "";
+                }
             }
         }
 

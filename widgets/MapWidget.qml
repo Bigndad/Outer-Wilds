@@ -1,16 +1,18 @@
 import QtQuick
 import ".."
 
-// Small map: the whole system as a strip of planets (same positions / colours as the Map View). Click it to open the big Map View.
-// Everything it shows comes from MapData (catalog, selected planet, toggle key).
+// Small map: the whole system as a strip of planets. Click it to open the big Map View.
 WidgetCard {
     id: w
     title: "MAP"
     designW: 250
     designH: 132
 
-    readonly property real unit: 22 * w.ui           // px per map column
-    readonly property real x0: 1.25                  // the Sun's left edge, so the strip starts at x = 0
+    property var cfg: ({ showAxis: true, showSelectionRing: true, showPlanetName: true,
+                         showKeyHint: true, ringColor: "#D4AF37" })
+
+    readonly property real unit: 22 * w.ui
+    readonly property real x0: 1.25
     readonly property bool hot: ma.containsMouse
 
     Item {
@@ -18,7 +20,8 @@ WidgetCard {
         width: parent.width
         height: Math.round(50 * w.ui)
 
-        Rectangle {             // faint axis through the planets
+        Rectangle {
+            visible: w.cfg.showAxis !== false
             y: Math.round(24 * w.ui)
             width: parent.width
             height: Math.max(1, Math.round(w.ui))
@@ -43,15 +46,15 @@ WidgetCard {
                     border.width: Math.max(1, Math.round(w.ui))
                     border.color: node.modelData.ring
                 }
-                Rectangle {     // selection ring
-                    visible: node.sel
+                Rectangle {
+                    visible: node.sel && w.cfg.showSelectionRing !== false
                     anchors.centerIn: parent
                     width: node.dpx + Math.round(8 * w.ui)
                     height: width
                     radius: width / 2
                     color: "transparent"
                     border.width: Math.max(1, Math.round(1.5 * w.ui))
-                    border.color: w.cGold
+                    border.color: w.cfg.ringColor || w.cGold
                 }
             }
         }
@@ -63,6 +66,7 @@ WidgetCard {
         anchors.bottom: parent.bottom
         spacing: Math.round(2 * w.ui)
         Text {
+            visible: w.cfg.showPlanetName !== false
             width: parent.width
             elide: Text.ElideRight
             text: MapData.nameOf(MapData.selectedId).toUpperCase()
@@ -72,10 +76,11 @@ WidgetCard {
             font.letterSpacing: 2 * w.ui
         }
         Text {
+            visible: w.cfg.showKeyHint !== false
             width: parent.width
             elide: Text.ElideRight
             text: "OPEN MAP  [" + MapData.toggleKey + "]"
-            color: w.hot ? w.cGold : w.cDim
+            color: w.hot ? (w.cfg.ringColor || w.cGold) : w.cDim
             font.family: "monospace"
             font.pixelSize: Math.max(8, Math.round(9 * w.ui))
             font.letterSpacing: 1 * w.ui

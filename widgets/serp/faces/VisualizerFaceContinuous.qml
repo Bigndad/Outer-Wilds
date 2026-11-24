@@ -17,6 +17,9 @@ Item {
     property bool isVisVisible: visible
 
     property bool isSubscribed: false
+    property int barCount: 64
+    property real riseSpeed: 0.25
+    property real fallSpeed: 0.12
 
     onIsVisVisibleChanged: updateSubscription()
 
@@ -43,9 +46,9 @@ Item {
         anchors.fill: parent
         active: root.isSubscribed
         continuous: true
-        count: 64
-        rise: 0.25
-        fall: 0.12
+        count: root.barCount
+        rise: root.riseSpeed
+        fall: root.fallSpeed
         maxLength: height * 0.92
     }
 }

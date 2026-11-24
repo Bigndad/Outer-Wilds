@@ -8,34 +8,49 @@ WidgetCard {
     designW: 300
     designH: 128
 
+    property var cfg: ({ columns: 5, shape: "circle", pillSize: 40, hideEmpty: false,
+                         activeColor: "#D4AF37", occupiedColor: "#E6D5B8" })
+
+    function visibleWorkspaces() {
+        const list = WidgetData.workspaces || [];
+        if (!w.cfg.hideEmpty) return list;
+        const out = [];
+        for (let i = 0; i < list.length; i++)
+            if (list[i].windows > 0 || list[i].id === WidgetData.activeWorkspace) out.push(list[i]);
+        return out.length > 0 ? out : list;
+    }
+
     Grid {
         anchors.centerIn: parent
-        columns: 5
+        columns: Math.max(1, Math.round(w.cfg.columns || 5))
         spacing: 10 * w.ui
 
         Repeater {
-            model: WidgetData.workspaces
+            model: w.visibleWorkspaces()
 
             Rectangle {
                 id: pill
                 required property var modelData
                 readonly property bool active: modelData.id === WidgetData.activeWorkspace
                 readonly property bool occupied: modelData.windows > 0
+                readonly property color actCol: w.cfg.activeColor || w.cGold
+                readonly property color occCol: w.cfg.occupiedColor || w.cCream
 
-                width: 40 * w.ui
+                width: Math.round((w.cfg.pillSize || 40) * w.ui)
                 height: width
-                radius: width / 2
-                color: active ? w.cGold : (hover.containsMouse ? "#33D4AF37" : (occupied ? "#22E6D5B8" : "transparent"))
+                radius: w.cfg.shape === "square" ? Math.round(2 * w.ui)
+                      : (w.cfg.shape === "rounded" ? Math.round(8 * w.ui) : width / 2)
+                color: active ? actCol : (hover.containsMouse ? "#33D4AF37" : (occupied ? "#22E6D5B8" : "transparent"))
                 border.width: Math.max(1, Math.round(w.ui * 1.5))
-                border.color: active ? w.cGold : (occupied ? w.cCream : "#55D4AF37")
+                border.color: active ? actCol : (occupied ? occCol : "#55D4AF37")
 
                 Text {
                     anchors.centerIn: parent
                     text: pill.modelData.id
-                    color: pill.active ? "#07080C" : (pill.occupied ? w.cCream : w.cDim)
+                    color: pill.active ? "#07080C" : (pill.occupied ? pill.occCol : w.cDim)
                     font.family: "monospace"
                     font.bold: true
-                    font.pixelSize: Math.max(8, Math.round(16 * w.ui))
+                    font.pixelSize: Math.max(8, Math.round((w.cfg.pillSize || 40) * 0.4 * w.ui))
                 }
 
                 MouseArea {

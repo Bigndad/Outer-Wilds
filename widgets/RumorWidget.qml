@@ -1,19 +1,22 @@
 import QtQuick
 import ".."
 
-// Interloper widget: a small Outer Wilds card that opens the Rumor Map when clicked.
-// Used by WidgetLayer.qml as the source of "in_a". Everything it shows comes from RumorData:
-// the unread count, and a scrolling line with the newest notification.
+// Interloper widget: small Outer Wilds card that opens the Rumor Map when clicked.
 WidgetCard {
     id: w
     title: "SHIP LOG"
     designW: 250
     designH: 132
 
-    // mini rumor map glyph: three linked cards
+    property var cfg: ({ showGlyph: true, showTicker: true, scrollTicker: true,
+                         flashOnNew: true, showKeyHint: true, accentColor: "#D4AF37" })
+
+    readonly property color actCol: cfg.accentColor || w.cGold
+
     Item {
         id: glyph
-        width: Math.round(64 * w.ui)
+        visible: w.cfg.showGlyph !== false
+        width: visible ? Math.round(64 * w.ui) : 0
         height: Math.round(48 * w.ui)
         y: Math.round(2 * w.ui)
 
@@ -25,12 +28,12 @@ WidgetCard {
         Rectangle { x: Math.round(glyph.width / 2); y: glyph.ch; width: glyph.lw; height: Math.round(13 * w.ui); color: "#668A7F66" }
         Rectangle { x: 0; y: 0; width: glyph.cw; height: glyph.ch; color: "#0A0B10"; border.width: glyph.lw; border.color: "#3FBF6A" }
         Rectangle { x: glyph.width - glyph.cw; y: Math.round(glyph.ch / 2) - Math.round(4 * w.ui); width: glyph.cw; height: glyph.ch; color: "#0A0B10"; border.width: glyph.lw; border.color: "#E8883A" }
-        Rectangle { x: Math.round(glyph.width / 2) - Math.round(glyph.cw / 2); y: glyph.height - glyph.ch; width: glyph.cw; height: glyph.ch; color: "#0A0B10"; border.width: glyph.lw; border.color: w.cGold }
+        Rectangle { x: Math.round(glyph.width / 2) - Math.round(glyph.cw / 2); y: glyph.height - glyph.ch; width: glyph.cw; height: glyph.ch; color: "#0A0B10"; border.width: glyph.lw; border.color: w.actCol }
     }
 
     Column {
         anchors.left: glyph.right
-        anchors.leftMargin: Math.round(14 * w.ui)
+        anchors.leftMargin: glyph.visible ? Math.round(14 * w.ui) : 0
         anchors.right: parent.right
         y: 0
         spacing: Math.round(2 * w.ui)
@@ -39,7 +42,7 @@ WidgetCard {
             width: parent.width
             elide: Text.ElideRight
             text: RumorData.unreadCount
-            color: RumorData.unreadCount > 0 ? w.cGold : w.cDim
+            color: RumorData.unreadCount > 0 ? w.actCol : w.cDim
             font.family: "monospace"
             font.bold: true
             font.pixelSize: Math.max(10, Math.round(26 * w.ui))
@@ -54,6 +57,7 @@ WidgetCard {
             font.letterSpacing: 2 * w.ui
         }
         Text {
+            visible: w.cfg.showKeyHint !== false
             width: parent.width
             elide: Text.ElideRight
             text: "OPEN  [" + RumorData.toggleKey + "]"
@@ -64,10 +68,9 @@ WidgetCard {
         }
     }
 
-    // newest notification, scrolling when it is longer than the card. The animation only runs while the card is visible
-    // (WidgetSlot hides the card when its planet is off-focus), so it costs nothing otherwise.
     Rectangle {
         id: tickerBox
+        visible: w.cfg.showTicker !== false
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -89,7 +92,7 @@ WidgetCard {
 
             SequentialAnimation {
                 loops: Animation.Infinite
-                running: tickerText.overflow > 0 && w.visible
+                running: w.cfg.scrollTicker !== false && tickerText.overflow > 0 && w.visible && tickerBox.visible
                 onRunningChanged: if (!running) tickerText.off = 0
                 PauseAnimation { duration: 1600 }
                 NumberAnimation { target: tickerText; property: "off"; to: tickerText.overflow; duration: Math.max(400, tickerText.overflow * 28) }
@@ -99,14 +102,13 @@ WidgetCard {
         }
     }
 
-    // a gold outline flashes once when a new notification arrives (a colour flash, so text stays crisp)
     Rectangle {
         id: flash
         objectName: "rumorFlash"
         anchors.fill: parent
         anchors.margins: -Math.round(8 * w.ui)
         color: "transparent"
-        border.color: w.cGold
+        border.color: w.actCol
         border.width: Math.max(1, Math.round(2 * w.ui))
         opacity: 0
         NumberAnimation {
@@ -121,7 +123,7 @@ WidgetCard {
     }
     Connections {
         target: RumorData
-        function onArrived(n) { flashAnim.restart(); }
+        function onArrived(n) { if (w.cfg.flashOnNew !== false) flashAnim.restart(); }
     }
 
     MouseArea {

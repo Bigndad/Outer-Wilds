@@ -4,6 +4,7 @@ import Quickshell
 
 UsageFaceBase {
     id: root
+    property string accentHex: ""
 
     property real rawDisk: isNaN(SysData.diskPercent) ? 0.0 : SysData.diskPercent / 100.0
     property real diskUsagePercent: rawDisk
@@ -18,7 +19,7 @@ UsageFaceBase {
         bgOpacity: ThemeBackend.elementOpacity
         value: root.diskUsagePercent
         colorBase: ThemeBackend.surface0
-        colorFill: Qt.darker(ThemeBackend.mauve, 1.15)
+        colorFill: root.accentHex !== "" ? root.accentHex : Qt.darker(ThemeBackend.mauve, 1.15)
         icon: String.fromCodePoint(0xF02CA)
         title: root.diskTotalText
         subText: root.diskUsedText

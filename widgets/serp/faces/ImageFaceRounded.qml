@@ -14,6 +14,7 @@ Item {
     property real minAspect: 0.02
     property real maxAspect: 50.0
     property bool isRound: false
+    property bool cropImage: false
 
     property string imagePath: (typeof model !== "undefined" && model && model.wImagePath) ? model.wImagePath : (parent && parent.wImagePath ? parent.wImagePath : "")
 
@@ -29,7 +30,7 @@ Item {
             anchors.fill: parent
             path: root.imagePath
             active: root.visible && root.imagePath !== ""
-            crop: false
+            crop: root.cropImage
         }
 
         Item {

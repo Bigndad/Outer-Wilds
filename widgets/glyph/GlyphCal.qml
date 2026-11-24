@@ -2,7 +2,7 @@ import QtQuick
 import "../.."
 import "."
 
-// Month calendar, Monday first. Today = the one red dot. Arrows change month, click the title to come back.
+// Month calendar. Today = the accent dot. Arrows change month, click the title to come back.
 GlyphCard {
     id: w
     designW: 320
@@ -10,12 +10,14 @@ GlyphCard {
 
     readonly property var now: WidgetData.now
     property int offset: 0
+    readonly property bool sunFirst: cfg.sundayFirst === true
     readonly property var first: new Date(now.getFullYear(), now.getMonth() + offset, 1)
-    readonly property int lead: (first.getDay() + 6) % 7
+    readonly property int lead: sunFirst ? first.getDay() : ((first.getDay() + 6) % 7)
     readonly property int days: new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()
     readonly property bool thisMonth: first.getFullYear() === now.getFullYear() && first.getMonth() === now.getMonth()
+    readonly property int todayCol: sunFirst ? now.getDay() : ((now.getDay() + 6) % 7)
+    readonly property color todayColHex: (cfg.todayColor && cfg.todayColor !== "") ? cfg.todayColor : GlyphTheme.red
 
-    // header
     Text {
         id: prev
         x: 20; y: 14; width: 30; height: 30
@@ -42,31 +44,29 @@ GlyphCard {
             color: GlyphTheme.fg
             font.pixelSize: 13
         }
-        GlyphLabel { anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDate(w.first, "yyyy") }
+        GlyphLabel { visible: w.cfg.showYear !== false; anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDate(w.first, "yyyy") }
     }
     MouseArea {
         x: 60; y: 10; width: parent.width - 120; height: 38
         onClicked: w.offset = 0
     }
 
-    // weekday row
     Row {
         x: 16; y: 60
         Repeater {
-            model: ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+            model: w.sunFirst ? ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] : ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
             GlyphLabel {
                 required property string modelData
                 required property int index
                 width: 40
                 horizontalAlignment: Text.AlignHCenter
                 text: modelData
-                color: w.thisMonth && (w.now.getDay() + 6) % 7 === index ? GlyphTheme.fg : GlyphTheme.mute
+                color: w.thisMonth && w.todayCol === index ? GlyphTheme.fg : GlyphTheme.mute
             }
         }
     }
     Rectangle { x: 20; y: 80; width: parent.width - 40; height: 1; color: GlyphTheme.s2 }
 
-    // day grid, 7 x 6
     Repeater {
         model: 42
         Item {
@@ -74,6 +74,7 @@ GlyphCard {
             readonly property int day: index - w.lead + 1
             readonly property bool inMonth: day >= 1 && day <= w.days
             readonly property bool today: inMonth && w.thisMonth && day === w.now.getDate()
+            readonly property bool isWeekend: w.sunFirst ? (index % 7 === 0 || index % 7 === 6) : (index % 7 >= 5)
             x: 16 + (index % 7) * 40
             y: 92 + Math.floor(index / 7) * 40
             width: 40
@@ -82,12 +83,12 @@ GlyphCard {
             Rectangle {
                 anchors.centerIn: parent
                 width: 30; height: 30; radius: 15
-                color: parent.today ? GlyphTheme.red : "transparent"
+                color: parent.today ? w.todayColHex : "transparent"
             }
             Text {
                 anchors.centerIn: parent
                 text: parent.day
-                color: parent.today ? GlyphTheme.fg : (index % 7 >= 5 ? GlyphTheme.grey : GlyphTheme.fg)
+                color: parent.today ? GlyphTheme.fg : (parent.isWeekend ? GlyphTheme.grey : GlyphTheme.fg)
                 font.family: GlyphTheme.mono
                 font.pixelSize: 14
                 font.bold: parent.today

@@ -4,6 +4,7 @@ import Quickshell
 
 UsageFaceBase {
     id: root
+    property string accentHex: ""
 
     property real rawTemp: isNaN(SysData.temp) ? 0.0 : SysData.temp
     property real tempC: rawTemp
@@ -15,7 +16,7 @@ UsageFaceBase {
         bgOpacity: ThemeBackend.elementOpacity
         value: Math.max(0.0, Math.min(1.0, root.tempC / 100.0))
         colorBase: ThemeBackend.surface0
-        colorFill: ThemeBackend.mauve
+        colorFill: root.accentHex !== "" ? root.accentHex : ThemeBackend.mauve
         icon: String.fromCodePoint(0xF050F)
         title: I18n.t("quickactions.systemusage.temp")
         valueText: Math.round(root.tempC) + "°"

@@ -1,18 +1,45 @@
 import QtQuick
 import ".."
 
-// CONTROL CENTRE (the slide-in panel on the right edge). Three tabs:
-//   WIDGETS  every orbiting widget, grouped by planet. Search, collapse a planet, "+" on a planet adds a widget THERE,
-//            x removes a widget from its planet (it stays in the catalog: "+ ADD" offers it again, removed defaults can be restored).
-//   KEYS     every key in the shell. Click a key to rebind it; fixed keys are listed for reference.
-//   OPTIONS  show / hide the bottom-right loop and speed panel, reset buttons.
-// Everything goes through WidgetConfig (live preview in the scene, saved to widgets.json by WidgetConfigStore).
+// CONTROL CENTRE + detached left-side Pop-out Widget Inspector.
 // Plain QtQuick only (no Quickshell import), so it also runs in `qml` on the Mint laptop.
-Rectangle {
+Item {
     id: root
 
     signal closeRequested()
     signal flyRequested(string planetId)
+    signal fileBrowseRequested(string title, string zenFilter, string kdFilter, var callback)
+    signal presetExportRequested(string presetName, string jsonText)
+    signal presetImportRequested()
+
+    readonly property bool inspectorOpen: root.tab === "widgets" && root.expandedId !== "" && !root.picking && root.inspEntry !== null
+    readonly property var inspEntry: root.expandedId !== "" ? WidgetConfig.entry(root.expandedId) : null
+    readonly property alias mainPanelItem: mainPanel
+    property string inspectorTab: "orbit"    // orbit | card | options
+    property real panelSlide: WidgetConfig.panelOpen ? 1.0 : 0.0
+    Behavior on panelSlide { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+    readonly property bool panelShown: WidgetConfig.panelOpen || panelSlide > 0.01
+    implicitWidth: 810
+
+    readonly property var systemFonts: {
+        const pinned = ["monospace", "sans-serif", "serif"];
+        const seen = { "monospace": 1, "sans-serif": 1, "serif": 1 };
+        const list = Qt.fontFamilies();
+        const out = pinned.slice();
+        for (let i = 0; i < list.length; i++) {
+            const f = list[i];
+            if (f && !seen[f]) { seen[f] = 1; out.push(f); }
+        }
+        return out;
+    }
+    readonly property var planetChoices: {
+        const out = [];
+        for (let i = 0; i < WidgetConfig.planets.length; i++) {
+            const pl = WidgetConfig.planets[i];
+            out.push({ value: pl.id, label: pl.name, dot: WidgetConfig.planetColor(pl.id) });
+        }
+        return out;
+    }
 
     readonly property color cCream: "#E6D5B8"
     readonly property color cGold: "#D4AF37"
@@ -36,46 +63,30 @@ Rectangle {
         optOpen = c;
     }
     property bool picking: false
-    property string pickMode: "add"       // "add" | "swap"
-    property string pickTarget: ""        // widget id when swapping
+    property string pickMode: "add"
+    property string pickTarget: ""
     property string pickQuery: ""
     property bool confirmReset: false
     property bool confirmClean: false
     property bool confirmAll: false
     property string lastHost: "timber_hearth"
-    property string capturing: ""         // action id whose key is being recorded
-    property string capLone: ""           // a modifier pressed on its own so far ("Ctrl"...): becomes the key if released alone
-    property string capHeld: ""           // modifiers held right now, for the banner
+    property string capturing: ""
+    property string capLone: ""
+    property string capHeld: ""
     onCapturingChanged: { WidgetConfig.capturingKeys = (capturing !== ""); capLone = ""; capHeld = ""; }
     property string keyMsg: ""
-
-    color: "#F5070911"
-    radius: 12
-    clip: true
-    border.color: "#66D4AF37"
-    border.width: 1
+    property string presetMsg: ""
     focus: true
-
-    Rectangle {
-        anchors.fill: parent
-        radius: parent.radius
-        z: -1
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "#F50E1324" }
-            GradientStop { position: 0.45; color: "#F5070911" }
-            GradientStop { position: 1.0; color: "#F504050B" }
-        }
-    }
 
     Keys.onPressed: (event) => {
         if (root.capturing !== "") {
             event.accepted = true;
             root.capHeld = root.modsText(event.modifiers);
             const lone = Keybinds.loneOf(event);
-            if (lone !== "") { root.capLone = lone; return; }      // Ctrl / Shift / Alt / Super: wait; alone-and-released it becomes the key
+            if (lone !== "") { root.capLone = lone; return; }
             root.capLone = "";
             if (event.modifiers === Qt.NoModifier && event.key === Qt.Key_Escape) { root.capturing = ""; root.keyMsg = ""; return; }
-            if (event.modifiers === Qt.NoModifier && (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)) {      // take the key off
+            if (event.modifiers === Qt.NoModifier && (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)) {
                 Keybinds.unbind(root.capturing);
                 root.capturing = ""; root.keyMsg = "";
                 return;
@@ -89,7 +100,9 @@ Rectangle {
         }
         if (event.key === Qt.Key_Escape) {
             event.accepted = true;
-            if (picking) picking = false; else root.closeRequested();
+            if (picking) picking = false;
+            else if (expandedId !== "") { expandedId = ""; WidgetConfig.previewId = ""; }
+            else root.closeRequested();
         }
     }
 
@@ -98,7 +111,7 @@ Rectangle {
         event.accepted = true;
         root.capHeld = root.modsText(event.modifiers);
         const lone = Keybinds.loneOf(event);
-        if (lone !== "" && lone === root.capLone) {          // pressed and released with nothing in between: the modifier itself
+        if (lone !== "" && lone === root.capLone) {
             root.capLone = "";
             const why = Keybinds.assign(root.capturing, lone);
             root.keyMsg = why;
@@ -116,8 +129,6 @@ Rectangle {
     }
 
     // ---------------- list structure (WIDGETS tab) ----------------
-    // Rebuilt only when the SET of rows changes (added / removed / moved / searched / collapsed),
-    // never while a slider is dragged, so the row under the mouse keeps existing.
     property var structure: []
     property string _structKey: ""
     property int widgetCount: 0
@@ -143,7 +154,7 @@ Rectangle {
         const out = [];
         const hosts = [];
         for (let p = 0; p < WidgetConfig.planets.length; p++) hosts.push(WidgetConfig.planets[p].id);
-        for (const h in byHost) if (hosts.indexOf(h) < 0) hosts.push(h);     // a host the panel does not know (typo in a def): still listed
+        for (const h in byHost) if (hosts.indexOf(h) < 0) hosts.push(h);
         for (let p = 0; p < hosts.length; p++) {
             const id = hosts[p];
             const l = byHost[id] || [];
@@ -181,7 +192,7 @@ Rectangle {
     function toggleExpand(id) {
         capturing = ""; keyMsg = "";
         if (expandedId === id) { expandedId = ""; WidgetConfig.previewId = ""; }
-        else { expandedId = id; WidgetConfig.previewId = id; const e = WidgetConfig.entry(id); if (e) lastHost = e.host; }
+        else { expandedId = id; WidgetConfig.previewId = id; inspectorTab = "orbit"; const e = WidgetConfig.entry(id); if (e) lastHost = e.host; }
     }
 
     // ---------------- picker (add / change type) ----------------
@@ -215,7 +226,6 @@ Rectangle {
     onPickQueryChanged: buildPick()
     onPickModeChanged: buildPick()
 
-    // host: the planet a NEW widget goes to. "" = the planet you are focused on in the scene, else the last one used.
     property bool pickFromFocus: false
     function startPick(mode, target, host) {
         pickMode = mode;
@@ -271,8 +281,51 @@ Rectangle {
     }
 
     // ---------------- small controls ----------------
-    // scrollbar for a Flickable that is a direct child of the same parent: click the track or drag the knob.
-    // Place it right after the Flickable and leave 10 px free on the Flickable's right.
+    component OWBrackets: Item {
+        id: br
+        property color col: "#CCD4AF37"
+        property real arm: 13
+        property real thick: 2
+        anchors.fill: parent
+        z: 30
+        Repeater {
+            model: [{ r: false, b: false }, { r: true, b: false }, { r: false, b: true }, { r: true, b: true }]
+            delegate: Item {
+                required property var modelData
+                width: br.arm; height: br.arm
+                x: modelData.r ? br.width - width : 0
+                y: modelData.b ? br.height - height : 0
+                Rectangle { width: parent.width; height: br.thick; y: parent.modelData.b ? parent.height - height : 0; color: br.col }
+                Rectangle { height: parent.height; width: br.thick; x: parent.modelData.r ? parent.width - width : 0; color: br.col }
+            }
+        }
+    }
+
+    component InsetCard: Rectangle {
+        id: ic
+        property string heading: ""
+        default property alias content: icCol.data
+        height: icCol.height + (heading !== "" ? 38 : 20)
+        radius: 8
+        color: "#0B101D"
+        border.width: 1
+        border.color: "#2AD4AF37"
+        Text {
+            visible: ic.heading !== ""
+            x: 12; y: 10
+            text: ic.heading
+            color: root.cGold
+            font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2
+        }
+        Column {
+            id: icCol
+            x: 12
+            y: ic.heading !== "" ? 28 : 10
+            width: parent.width - 24
+            spacing: 7
+        }
+    }
+
     component OWScroll: Item {
         id: sc
         property Flickable target: null
@@ -368,6 +421,61 @@ Rectangle {
         }
     }
 
+    component OWResetBtn: Text {
+        id: rb
+        property bool shown: false
+        signal clicked()
+        visible: shown
+        text: "↺"
+        color: rbMa.containsMouse ? root.cGold : root.cDim
+        font.family: root.mono
+        font.pixelSize: 13
+        MouseArea { id: rbMa; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: rb.clicked() }
+    }
+
+    component FieldLabel: Text {
+        color: root.cDim
+        font.family: root.mono
+        font.pixelSize: 10
+        font.letterSpacing: 2
+    }
+
+    component FieldHeader: Item {
+        id: fh
+        property string label: ""
+        property bool modified: false
+        signal resetClicked()
+        width: parent ? parent.width : 0
+        height: 15
+        FieldLabel { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: fh.label }
+        OWResetBtn { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; shown: fh.modified; onClicked: fh.resetClicked() }
+    }
+
+    component OWToggleRow: Item {
+        id: tr
+        property string label: ""
+        property bool on: false
+        property bool modified: false
+        signal toggled(bool v)
+        signal resetClicked()
+        width: parent ? parent.width : 0
+        height: 22
+        Text {
+            anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter
+            width: parent.width - (tr.modified ? 60 : 40); elide: Text.ElideRight
+            text: tr.label; color: root.cCream; font.family: root.mono; font.pixelSize: 11
+        }
+        OWResetBtn {
+            anchors.right: trSw.left; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter
+            shown: tr.modified; onClicked: tr.resetClicked()
+        }
+        OWSwitch {
+            id: trSw
+            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+            on: tr.on; onToggled: (v) => tr.toggled(v)
+        }
+    }
+
     component OWSlider: Item {
         id: s
         property real from: 0
@@ -376,9 +484,8 @@ Rectangle {
         property real step: 0.01
         property string text: ""
         property bool bipolar: false
-        property real typedScale: 1.0      // shown number = value * typedScale (degrees for tilt / turn)
+        property real typedScale: 1.0
         signal moved(real v)
-        // the number at the right is a text box: type any value, nothing clamps it (only the drag is limited to from..to)
         function commitTyped(str) {
             const m = String(str).match(/-?\d+(?:\.\d+)?|-?\.\d+/);
             if (!m) return;
@@ -386,17 +493,17 @@ Rectangle {
             if (isFinite(v)) s.moved(v);
         }
         readonly property real frac: to > from ? Math.max(0, Math.min(1, (value - from) / (to - from))) : 0
-        implicitHeight: 26
+        implicitHeight: 24
 
         Rectangle {
             id: track
             x: 0
-            width: s.width - 112
+            width: s.width - 102
             height: 4
             radius: 2
             anchors.verticalCenter: parent.verticalCenter
             color: "#22D4AF37"
-            Rectangle {          // fills from the left edge, or outward from the centre for a +/- slider
+            Rectangle {
                 x: s.bipolar ? parent.width * Math.min(s.frac, 0.5) : 0
                 width: s.bipolar ? parent.width * Math.abs(s.frac - 0.5) : parent.width * s.frac
                 height: parent.height
@@ -417,7 +524,7 @@ Rectangle {
             id: valBox
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            width: 104
+            width: 94
             horizontalAlignment: TextInput.AlignRight
             text: s.text
             color: activeFocus ? root.cGold : root.cCream
@@ -448,6 +555,7 @@ Rectangle {
     component OWTextField: Rectangle {
         id: tf
         property string value: ""
+        property string placeholder: ""
         property bool showSwatch: false
         signal edited(string v)
         implicitHeight: 28
@@ -464,6 +572,12 @@ Rectangle {
             color: /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(tf.value) ? tf.value : "transparent"
             border.width: 1
             border.color: root.cLine
+        }
+        Text {
+            visible: tf.placeholder !== "" && tfIn.text === "" && !tfIn.activeFocus
+            x: tf.showSwatch ? 28 : 10
+            anchors.verticalCenter: parent.verticalCenter
+            text: tf.placeholder; color: root.cOff; font.family: root.mono; font.pixelSize: 11
         }
         TextInput {
             id: tfIn
@@ -482,11 +596,477 @@ Rectangle {
         }
     }
 
-    component FieldLabel: Text {
-        color: root.cDim
-        font.family: root.mono
-        font.pixelSize: 10
-        font.letterSpacing: 2
+    component OWFileField: Row {
+        id: ff
+        property string value: ""
+        property string title: "Select file"
+        signal edited(string v)
+        spacing: 6
+        OWTextField {
+            width: ff.width - browseBtn.width - 6
+            placeholder: "/path/to/file"
+            value: ff.value
+            onEdited: (v) => ff.edited(v)
+        }
+        OWButton {
+            id: browseBtn
+            implicitHeight: 28; pad: 8; label: "BROWSE"
+            onClicked: root.fileBrowseRequested(ff.title, "Images | *.png *.jpg *.jpeg *.webp *.gif", "*.png *.jpg *.jpeg *.webp *.gif", (path) => { if (path) ff.edited(path); })
+        }
+    }
+
+    component OWDropdown: Column {
+        id: dd
+        property var model: []
+        property var value: ""
+        property string placeholder: "select..."
+        property bool open: false
+        signal selected(var v)
+
+        function itemFor(v) {
+            for (let i = 0; i < model.length; i++) {
+                const it = model[i];
+                const val = (typeof it === "object" && it !== null) ? it.value : it;
+                if (val === v) return it;
+            }
+            return null;
+        }
+        function labelFor(v) {
+            const it = itemFor(v);
+            if (it !== null) return String((typeof it === "object") ? (it.label !== undefined ? it.label : it.value) : it);
+            return v !== undefined && v !== "" ? String(v) : placeholder;
+        }
+        readonly property string curDot: {
+            const it = itemFor(value);
+            return (it && typeof it === "object" && it.dot) ? it.dot : "";
+        }
+        spacing: 4
+
+        Rectangle {
+            width: dd.width; height: 28; radius: 7
+            color: ddMa.containsMouse ? "#141B2E" : "#0C101C"
+            border.width: 1
+            border.color: dd.open || ddMa.containsMouse ? root.cGold : root.cLine
+            Behavior on border.color { ColorAnimation { duration: 140 } }
+            Rectangle {
+                visible: dd.curDot !== ""
+                x: 10; anchors.verticalCenter: parent.verticalCenter
+                width: 8; height: 8; radius: 4
+                color: dd.curDot !== "" ? dd.curDot : "transparent"
+            }
+            Text {
+                x: dd.curDot !== "" ? 24 : 10; width: parent.width - (dd.curDot !== "" ? 44 : 30)
+                anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight
+                text: dd.labelFor(dd.value); color: root.cCream
+                font.family: root.mono; font.pixelSize: 11
+            }
+            Text {
+                anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter
+                text: dd.open ? "▴" : "▾"; color: dd.open ? root.cGold : root.cDim
+                font.family: root.mono; font.pixelSize: 11
+            }
+            MouseArea { id: ddMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: dd.open = !dd.open }
+        }
+
+        Rectangle {
+            width: dd.width
+            height: dd.open ? Math.min(180, dd.model.length * 28 + 8) : 0
+            opacity: dd.open ? 1.0 : 0.0
+            visible: height > 1
+            radius: 7; color: "#090D18"; border.width: 1; border.color: "#55D4AF37"; clip: true
+            Behavior on height { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+
+            ListView {
+                id: ddList
+                anchors.fill: parent; anchors.margins: 4
+                model: dd.model; clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (e) => {
+                        e.accepted = true;
+                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
+                        ddList.contentY = Math.max(0, Math.min(Math.max(0, ddList.contentHeight - ddList.height), ddList.contentY - dy));
+                    }
+                }
+                delegate: Rectangle {
+                    required property var modelData
+                    readonly property var val: (typeof modelData === "object" && modelData !== null) ? modelData.value : modelData
+                    readonly property string lbl: String((typeof modelData === "object" && modelData !== null) ? (modelData.label !== undefined ? modelData.label : modelData.value) : modelData)
+                    readonly property string dot: (typeof modelData === "object" && modelData !== null && modelData.dot) ? modelData.dot : ""
+                    readonly property bool cur: dd.value === val
+                    width: ddList.width; height: 28; radius: 5
+                    color: cur ? "#2ED4AF37" : (dItemMa.containsMouse ? "#1AD4AF37" : "transparent")
+                    Rectangle {
+                        visible: parent.dot !== ""
+                        x: 8; anchors.verticalCenter: parent.verticalCenter
+                        width: 8; height: 8; radius: 4
+                        color: parent.dot !== "" ? parent.dot : "transparent"
+                    }
+                    Text {
+                        x: parent.dot !== "" ? 22 : 8; width: parent.width - (parent.dot !== "" ? 30 : 16)
+                        anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight
+                        text: parent.lbl; color: parent.cur ? root.cGold : root.cCream
+                        font.family: root.mono; font.pixelSize: 11; font.bold: parent.cur
+                    }
+                    MouseArea {
+                        id: dItemMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: { dd.selected(parent.val); dd.open = false; }
+                    }
+                }
+            }
+        }
+    }
+
+    component OWFontPicker: Column {
+        id: fp
+        property string value: ""
+        property string defaultValue: ""
+        property bool allowBlank: true
+        property bool open: false
+        property string filter: ""
+        signal edited(string v)
+
+        readonly property var filteredFonts: {
+            const q = filter.trim().toLowerCase();
+            const out = [];
+            if (allowBlank && (q === "" || "default".indexOf(q) >= 0)) out.push("");
+            const all = root.systemFonts;
+            for (let i = 0; i < all.length; i++) {
+                if (q === "" || all[i].toLowerCase().indexOf(q) >= 0) out.push(all[i]);
+            }
+            return out;
+        }
+        spacing: 4
+
+        Rectangle {
+            width: fp.width; height: 28; radius: 7
+            color: fpMa.containsMouse ? "#141B2E" : "#0C101C"
+            border.width: 1
+            border.color: fp.open || fpMa.containsMouse ? root.cGold : root.cLine
+            Behavior on border.color { ColorAnimation { duration: 140 } }
+            Text {
+                x: 10; width: parent.width - (fpClr.visible ? 48 : 30)
+                anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight
+                text: fp.value !== "" ? fp.value : "default"
+                color: fp.value !== "" ? root.cCream : root.cDim
+                font.family: fp.value !== "" ? fp.value : root.mono; font.pixelSize: 11
+            }
+            MouseArea { id: fpMa; anchors.fill: parent; anchors.rightMargin: fpClr.visible ? 26 : 0; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { fp.open = !fp.open; if (fp.open) fp.filter = ""; } }
+            Text {
+                id: fpClr
+                visible: fp.value !== fp.defaultValue
+                anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter
+                text: "↺"; color: fpClrMa.containsMouse ? root.cGold : root.cDim; font.pixelSize: 12
+                MouseArea { id: fpClrMa; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { fp.edited(fp.defaultValue); fp.open = false; } }
+            }
+            Text {
+                anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter
+                text: fp.open ? "▴" : "▾"; color: fp.open ? root.cGold : root.cDim; font.family: root.mono; font.pixelSize: 11
+            }
+        }
+
+        Rectangle {
+            width: fp.width
+            height: fp.open ? 196 : 0
+            opacity: fp.open ? 1.0 : 0.0
+            visible: height > 1
+            radius: 7; color: "#090D18"; border.width: 1; border.color: "#55D4AF37"; clip: true
+            Behavior on height { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+
+            Rectangle {
+                id: fpSearchBox
+                x: 6; y: 6; width: parent.width - 12; height: 26; radius: 5
+                color: "#0E1424"; border.width: 1; border.color: fpSearchIn.activeFocus ? root.cGold : root.cLine
+                Text {
+                    x: 8; anchors.verticalCenter: parent.verticalCenter
+                    visible: fpSearchIn.text === "" && !fpSearchIn.activeFocus
+                    text: "filter fonts..."; color: root.cOff; font.family: root.mono; font.pixelSize: 10
+                }
+                TextInput {
+                    id: fpSearchIn
+                    anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
+                    verticalAlignment: TextInput.AlignVCenter; clip: true
+                    color: root.cCream; font.family: root.mono; font.pixelSize: 11
+                    text: fp.filter
+                    onTextChanged: fp.filter = text
+                }
+            }
+
+            ListView {
+                id: fpList
+                x: 4; y: 36; width: parent.width - 8; height: Math.max(0, parent.height - 40)
+                model: fp.filteredFonts; clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (e) => {
+                        e.accepted = true;
+                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
+                        fpList.contentY = Math.max(0, Math.min(Math.max(0, fpList.contentHeight - fpList.height), fpList.contentY - dy));
+                    }
+                }
+                delegate: Rectangle {
+                    required property string modelData
+                    readonly property bool cur: fp.value === modelData
+                    width: fpList.width; height: 26; radius: 5
+                    color: cur ? "#2ED4AF37" : (fItemMa.containsMouse ? "#1AD4AF37" : "transparent")
+                    Text {
+                        x: 8; width: parent.width - 16; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight
+                        text: modelData === "" ? "(default)" : modelData
+                        color: parent.cur ? root.cGold : (modelData === "" ? root.cDim : root.cCream)
+                        font.family: modelData === "" ? root.mono : modelData; font.pixelSize: 11
+                    }
+                    MouseArea {
+                        id: fItemMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: { fp.edited(modelData); fp.open = false; }
+                    }
+                }
+            }
+        }
+    }
+
+    component OWColorPicker: Column {
+        id: cp
+        property string value: ""
+        property string defaultValue: ""
+        property bool allowBlank: true
+        property bool open: false
+        signal edited(string v)
+
+        readonly property bool isModified: String(value || "").toUpperCase() !== String(defaultValue || "").toUpperCase()
+        property real h: 0.12
+        property real s: 0.74
+        property real v: 0.83
+        property real a: 1.0
+        property bool _busy: false
+
+        readonly property var presets: ["#D4AF37", "#E6D5B8", "#FF7A45", "#7FB7C9", "#8FBF7A", "#D71921", "#E007080C", "#0E0E0E", "#F2F2F2"]
+
+        function syncFromHex(hex) {
+            if (_busy) return;
+            const m = String(hex || "").trim().match(/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+            if (!m) return;
+            const raw = m[1];
+            let alpha = 1.0, off = 0;
+            if (raw.length === 8) { alpha = parseInt(raw.slice(0, 2), 16) / 255.0; off = 2; }
+            const r = parseInt(raw.slice(off, off + 2), 16) / 255.0;
+            const g = parseInt(raw.slice(off + 2, off + 4), 16) / 255.0;
+            const b = parseInt(raw.slice(off + 4, off + 6), 16) / 255.0;
+            const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+            let hh = h;
+            if (d > 1e-6) {
+                if (mx === r) hh = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+                else if (mx === g) hh = ((b - r) / d + 2) / 6;
+                else hh = ((r - g) / d + 4) / 6;
+            }
+            h = hh; s = mx > 1e-6 ? d / mx : 0; v = mx; a = alpha;
+        }
+
+        function emitHsv() {
+            const i = Math.floor(h * 6), f = h * 6 - i;
+            const p = v * (1 - s), q = v * (1 - f * s), t2 = v * (1 - (1 - f) * s);
+            let r = 0, g = 0, b = 0;
+            switch (i % 6) {
+            case 0: r = v; g = t2; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t2; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t2; g = p; b = v; break;
+            case 5: r = v; g = p; b = q; break;
+            }
+            function hx(x) { return Math.max(0, Math.min(255, Math.round(x * 255))).toString(16).padStart(2, "0").toUpperCase(); }
+            const out = (a < 0.995 ? ("#" + hx(a)) : "#") + hx(r) + hx(g) + hx(b);
+            _busy = true;
+            edited(out);
+            _busy = false;
+        }
+
+        onValueChanged: syncFromHex(value)
+        Component.onCompleted: syncFromHex(value)
+        spacing: 5
+
+        Rectangle {
+            width: cp.width; height: 28; radius: 7
+            color: "#0C101C"; border.width: 1
+            border.color: cp.open || cpIn.activeFocus ? root.cGold : root.cLine
+            Behavior on border.color { ColorAnimation { duration: 140 } }
+
+            Rectangle {
+                id: swBox
+                x: 6; anchors.verticalCenter: parent.verticalCenter
+                width: 16; height: 16; radius: 4
+                color: /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(cp.value) ? cp.value : "transparent"
+                border.width: 1; border.color: root.cGold
+                MouseArea { anchors.fill: parent; anchors.margins: -4; cursorShape: Qt.PointingHandCursor; onClicked: cp.open = !cp.open }
+            }
+            TextInput {
+                id: cpIn
+                anchors.fill: parent
+                anchors.leftMargin: 28
+                anchors.rightMargin: cpRst.visible ? 44 : 26
+                verticalAlignment: TextInput.AlignVCenter
+                clip: true; selectByMouse: true
+                text: cp.value
+                color: root.cCream; font.family: root.mono; font.pixelSize: 11
+                onAccepted: { cp.edited(text.trim()); focus = false; }
+                onActiveFocusChanged: { if (!activeFocus) { if (text.trim() !== cp.value) cp.edited(text.trim()); text = Qt.binding(() => cp.value); } }
+            }
+            Text {
+                visible: cp.value === "" && !cpIn.activeFocus
+                x: 28; anchors.verticalCenter: parent.verticalCenter
+                text: "default"; color: root.cOff; font.family: root.mono; font.pixelSize: 11
+            }
+            Text {
+                id: cpRst
+                visible: cp.isModified
+                anchors.right: parent.right; anchors.rightMargin: 24; anchors.verticalCenter: parent.verticalCenter
+                text: "↺"; color: cpRstMa.containsMouse ? root.cGold : root.cDim; font.pixelSize: 12
+                MouseArea {
+                    id: cpRstMa; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    onClicked: { cp.syncFromHex(cp.defaultValue); cp.edited(cp.defaultValue); if (cp.defaultValue === "") cp.open = false; }
+                }
+            }
+            Text {
+                anchors.right: parent.right; anchors.rightMargin: 9; anchors.verticalCenter: parent.verticalCenter
+                text: cp.open ? "▴" : "▾"; color: cp.open ? root.cGold : root.cDim; font.family: root.mono; font.pixelSize: 11
+                MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor; onClicked: cp.open = !cp.open }
+            }
+        }
+
+        Rectangle {
+            width: cp.width
+            height: cp.open ? (cpBody.height + 16) : 0
+            opacity: cp.open ? 1.0 : 0.0
+            visible: height > 1
+            radius: 8; color: "#090D18"; border.width: 1; border.color: "#55D4AF37"; clip: true
+            Behavior on height { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 140 } }
+
+            Column {
+                id: cpBody
+                x: 8; y: 8; width: parent.width - 16; spacing: 8
+
+                Rectangle {
+                    id: svPad
+                    width: parent.width; height: 100; radius: 6; clip: true
+                    color: Qt.hsva(cp.h, 1, 1, 1)
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0.0; color: "#FFFFFFFF" }
+                            GradientStop { position: 1.0; color: "#00FFFFFF" }
+                        }
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "#00000000" }
+                            GradientStop { position: 1.0; color: "#FF000000" }
+                        }
+                    }
+                    Rectangle {
+                        width: 12; height: 12; radius: 6
+                        x: cp.s * svPad.width - 6; y: (1 - cp.v) * svPad.height - 6
+                        color: "transparent"; border.width: 2; border.color: "#FFFFFF"
+                    }
+                    MouseArea {
+                        anchors.fill: parent; cursorShape: Qt.CrossCursor
+                        function pick(mx, my) {
+                            cp.s = Math.max(0, Math.min(1, mx / svPad.width));
+                            cp.v = Math.max(0, Math.min(1, 1 - my / svPad.height));
+                            cp.emitHsv();
+                        }
+                        onPressed: (m) => pick(m.x, m.y)
+                        onPositionChanged: (m) => { if (pressed) pick(m.x, m.y) }
+                    }
+                }
+
+                Rectangle {
+                    id: hueBar
+                    width: parent.width; height: 12; radius: 6
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.00; color: "#FF0000" }
+                        GradientStop { position: 0.17; color: "#FFFF00" }
+                        GradientStop { position: 0.33; color: "#00FF00" }
+                        GradientStop { position: 0.50; color: "#00FFFF" }
+                        GradientStop { position: 0.67; color: "#0000FF" }
+                        GradientStop { position: 0.83; color: "#FF00FF" }
+                        GradientStop { position: 1.00; color: "#FF0000" }
+                    }
+                    Rectangle {
+                        width: 10; height: 14; radius: 4
+                        x: cp.h * (hueBar.width - width); anchors.verticalCenter: parent.verticalCenter
+                        color: "#FFFFFF"; border.width: 1; border.color: "#000000"
+                    }
+                    MouseArea {
+                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                        function pick(mx) { cp.h = Math.max(0, Math.min(0.999, mx / hueBar.width)); cp.emitHsv(); }
+                        onPressed: (m) => pick(m.x)
+                        onPositionChanged: (m) => { if (pressed) pick(m.x) }
+                    }
+                }
+
+                Row {
+                    width: parent.width; spacing: 8
+                    Rectangle {
+                        id: alphaBar
+                        width: parent.width - 38; height: 12; radius: 6; anchors.verticalCenter: parent.verticalCenter
+                        color: "#1B2030"; border.width: 1; border.color: root.cLine
+                        Rectangle {
+                            anchors.fill: parent; radius: 6
+                            gradient: Gradient {
+                                orientation: Gradient.Horizontal
+                                GradientStop { position: 0.0; color: Qt.hsva(cp.h, cp.s, cp.v, 0.0) }
+                                GradientStop { position: 1.0; color: Qt.hsva(cp.h, cp.s, cp.v, 1.0) }
+                            }
+                        }
+                        Rectangle {
+                            width: 10; height: 14; radius: 4
+                            x: cp.a * (alphaBar.width - width); anchors.verticalCenter: parent.verticalCenter
+                            color: "#FFFFFF"; border.width: 1; border.color: "#000000"
+                        }
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            function pick(mx) { cp.a = Math.max(0, Math.min(1, mx / alphaBar.width)); cp.emitHsv(); }
+                            onPressed: (m) => pick(m.x)
+                            onPositionChanged: (m) => { if (pressed) pick(m.x) }
+                        }
+                    }
+                    Text {
+                        width: 30; horizontalAlignment: Text.AlignRight; anchors.verticalCenter: parent.verticalCenter
+                        text: Math.round(cp.a * 100) + "%"
+                        color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                    }
+                }
+
+                Flow {
+                    width: parent.width; spacing: 6
+                    Repeater {
+                        model: cp.presets
+                        Rectangle {
+                            required property string modelData
+                            width: 18; height: 18; radius: 4; color: modelData
+                            border.width: cp.value.toUpperCase() === modelData.toUpperCase() ? 2 : 1
+                            border.color: cp.value.toUpperCase() === modelData.toUpperCase() ? "#FFFFFF" : root.cLine
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: { cp.syncFromHex(parent.modelData); cp.edited(parent.modelData); }
+                            }
+                        }
+                    }
+                    OWButton {
+                        visible: cp.isModified
+                        implicitHeight: 18; pad: 6; label: "↺ DEFAULT"
+                        onClicked: { cp.syncFromHex(cp.defaultValue); cp.edited(cp.defaultValue); if (cp.defaultValue === "") cp.open = false; }
+                    }
+                }
+            }
+        }
     }
 
     component SearchBox: Rectangle {
@@ -500,35 +1080,21 @@ Rectangle {
         border.color: ti.activeFocus ? root.cGold : root.cLine
         Behavior on border.color { ColorAnimation { duration: 140 } }
         Text {
-            x: 10
-            anchors.verticalCenter: parent.verticalCenter
+            x: 10; anchors.verticalCenter: parent.verticalCenter
             visible: ti.text === "" && !ti.activeFocus
-            text: "⌕  " + sb.placeholder
-            color: root.cOff
-            font.family: root.mono
-            font.pixelSize: 11
+            text: "⌕  " + sb.placeholder; color: root.cOff; font.family: root.mono; font.pixelSize: 11
         }
         TextInput {
             id: ti
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 26
+            anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 26
             verticalAlignment: TextInput.AlignVCenter
-            color: root.cCream
-            selectionColor: root.cGold
-            font.family: root.mono
-            font.pixelSize: 12
-            clip: true
+            color: root.cCream; selectionColor: root.cGold; font.family: root.mono; font.pixelSize: 12; clip: true
             Keys.onEscapePressed: (event) => { if (ti.text !== "") { ti.text = ""; event.accepted = true; } else event.accepted = false; }
         }
         Text {
             visible: ti.text !== ""
-            anchors.right: parent.right
-            anchors.rightMargin: 9
-            anchors.verticalCenter: parent.verticalCenter
-            text: "✕"
-            color: root.cDim
-            font.pixelSize: 11
+            anchors.right: parent.right; anchors.rightMargin: 9; anchors.verticalCenter: parent.verticalCenter
+            text: "✕"; color: root.cDim; font.pixelSize: 11
             MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor; onClicked: ti.text = "" }
         }
     }
@@ -541,1108 +1107,1113 @@ Rectangle {
         width: tl.implicitWidth + 28
         height: 30
         Rectangle {
-            anchors.fill: parent
-            anchors.margins: 2
-            radius: 7
+            anchors.fill: parent; anchors.margins: 2; radius: 7
             color: tb.on ? "#24D4AF37" : (tma.containsMouse ? "#15D4AF37" : "transparent")
             Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
         }
         Text {
-            id: tl
-            anchors.centerIn: parent
-            text: tb.label
+            id: tl; anchors.centerIn: parent; text: tb.label
             color: tb.on ? root.cGold : (tma.containsMouse ? root.cCream : root.cDim)
-            font.family: root.mono
-            font.pixelSize: 11
-            font.bold: tb.on
-            font.letterSpacing: 2
+            font.family: root.mono; font.pixelSize: 11; font.bold: tb.on; font.letterSpacing: 2
             Behavior on color { ColorAnimation { duration: 140 } }
         }
         Rectangle {
-            anchors.bottom: parent.bottom
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: tb.on ? parent.width - 14 : 0
-            height: 2
-            radius: 1
-            color: root.cGold
+            anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+            width: tb.on ? parent.width - 14 : 0; height: 2; radius: 1; color: root.cGold
             Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         }
         MouseArea { id: tma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.setTab(tb.key) }
     }
 
-    // ---------------- header + tabs ----------------
-    Item {
-        id: head
-        x: 18; y: 14
-        width: parent.width - 36
-        height: 40
+    component OptAccordion: Column {
+        id: acc
+        property string optKey: ""
+        property string title: ""
+        property string subtitle: ""
+        property bool hasSwitch: false
+        property bool switchOn: false
+        signal switchToggled(bool v)
+        default property alias bodyContent: accCol.data
+        readonly property bool open: root.optOpen[optKey] === true
+        width: parent ? parent.width : 0
+        spacing: open ? 4 : 0
 
-        Text {
-            text: "CONTROL CENTRE"
-            color: root.cCream
-            font.family: root.mono
-            font.bold: true
-            font.pixelSize: 16
-            font.letterSpacing: 3
-        }
-        Text {
-            y: 24
-            text: root.tab === "widgets" ? (root.widgetCount + " ON PLANETS" + (root.offCount > 0 ? "  ·  " + root.offCount + " SWITCHED OFF" : ""))
-                : (root.tab === "keys" ? "CLICK A KEY TO CHANGE IT" : "SHOW / HIDE AND RESETS")
-            color: root.cDim
-            font.family: root.mono
-            font.pixelSize: 10
-            font.letterSpacing: 2
-        }
-        OWButton {
-            anchors.right: parent.right
-            label: "✕"
-            pad: 8
-            onClicked: root.closeRequested()
-        }
-    }
-
-    Row {
-        id: tabs
-        x: 10; y: 58
-        TabButton { label: "WIDGETS"; key: "widgets" }
-        TabButton { label: "KEYS"; key: "keys" }
-        TabButton { label: "OPTIONS"; key: "options" }
-    }
-    Rectangle { x: 18; y: 88; width: parent.width - 36; height: 1; color: root.cLine }
-
-    // =====================================================================
-    //  WIDGETS TAB
-    // =====================================================================
-    Item {
-        id: widgetsTab
-        visible: root.tab === "widgets"
-        x: 0; y: 96
-        width: parent.width
-        height: parent.height - 96
-
-        Item {
-            id: toolbar
-            x: 18
-            width: parent.width - 36
-            height: 82
-
-            SearchBox {
-                width: parent.width - 190
-                placeholder: "search widgets or planets"
-                text: root.query
-                onTextChanged: root.query = text
-            }
-            OWButton {
-                anchors.right: parent.right
-                label: "+ ADD"
-                active: true
-                onClicked: root.startPick("add", "")
-            }
-            OWButton {                      // two clicks: the first arms it for 3 s
-                anchors.right: parent.right
-                anchors.rightMargin: 66
-                label: root.confirmAll ? "SURE?" : "REMOVE ALL"
-                danger: root.confirmAll
-                onClicked: {
-                    if (root.confirmAll) { WidgetConfig.removeAll(); root.expandedId = ""; root.confirmAll = false; }
-                    else root.confirmAll = true;
-                }
-            }
-            Timer { interval: 3000; running: root.confirmAll; onTriggered: root.confirmAll = false }
-            FieldLabel { y: 38; text: "ALL ORBITS" }
-            OWSlider {
-                y: 50
-                width: parent.width
-                from: 0; to: 10; step: 0.05
-                value: WidgetConfig.globalSpeed
-                text: WidgetConfig.globalSpeed.toFixed(2) + "×"
-                onMoved: (v) => WidgetConfig.setGlobalSpeed(v)
-            }
-        }
-
-        // switched-off widgets still occupy their planet: one click clears them (they stay in the + ADD list)
         Rectangle {
-            id: cleanBar
-            visible: root.offCount > 0
-            x: 18; y: toolbar.height + 2
-            width: parent.width - 36
-            height: visible ? 30 : 0
-            radius: 3
-            color: "#14D4AF37"
-            border.width: 1
-            border.color: root.cLine
-            Text {
-                x: 10
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.offCount + " switched off, still on their planets"
-                color: root.cDim
-                font.family: root.mono
-                font.pixelSize: 10
+            width: acc.width; height: 48; radius: 8
+            color: acc.open ? "#20D4AF37" : (accHov.hovered ? "#15D4AF37" : "#0D1322")
+            border.width: 1; border.color: acc.open ? "#55D4AF37" : root.cLine
+            Behavior on color { ColorAnimation { duration: 140 } }
+            HoverHandler { id: accHov }
+            MouseArea { anchors.fill: parent; anchors.rightMargin: acc.hasSwitch ? 46 : 0; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleOpt(acc.optKey) }
+            Column {
+                x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - (acc.hasSwitch ? 66 : 24); spacing: 2
+                Text { text: (acc.open ? "▾  " : "▸  ") + acc.title; color: root.cCream; font.family: root.mono; font.pixelSize: 12; font.bold: acc.open }
+                Text { width: parent.width; elide: Text.ElideRight; text: acc.subtitle; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
             }
-            OWButton {
-                anchors.right: parent.right
-                anchors.rightMargin: 4
-                anchors.verticalCenter: parent.verticalCenter
-                implicitHeight: 22
-                label: root.confirmClean ? "SURE? CLICK AGAIN" : "REMOVE THEM"
-                danger: root.confirmClean
-                onClicked: {
-                    if (root.confirmClean) { WidgetConfig.removeDisabled(); root.expandedId = ""; root.confirmClean = false; }
-                    else root.confirmClean = true;
-                }
+            OWSwitch {
+                visible: acc.hasSwitch
+                anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter
+                on: acc.switchOn; onToggled: (v) => acc.switchToggled(v)
             }
-            Timer { interval: 3000; running: root.confirmClean; onTriggered: root.confirmClean = false }
+        }
+        Rectangle {
+            width: acc.width
+            height: acc.open ? (accCol.height + 20) : 0
+            opacity: acc.open ? 1.0 : 0.0
+            visible: height > 1
+            radius: 8; color: "#0B101D"; border.width: 1; border.color: "#2AD4AF37"; clip: true
+            Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+            Column { id: accCol; x: 12; y: 10; width: parent.width - 24; spacing: 7 }
+        }
+    }
+
+    // =====================================================================
+    //  MAIN CONTROL CENTRE (right strip, slides in/out smoothly)
+    // =====================================================================
+    Rectangle {
+        id: mainPanel
+        z: 2
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.rightMargin: -(1.0 - root.panelSlide) * 440
+        width: 420
+        opacity: root.panelSlide
+        color: "#F5070911"
+        radius: 12
+        clip: true
+        border.color: "#66D4AF37"
+        border.width: 1
+
+        OWBrackets { }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            z: -1
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#F50E1324" }
+                GradientStop { position: 0.45; color: "#F5070911" }
+                GradientStop { position: 1.0; color: "#F504050B" }
+            }
         }
 
-        Flickable {
-            id: flick
-            x: 18
-            y: toolbar.height + (cleanBar.visible ? 38 : 8)
-            width: parent.width - 46            // 10 px free on the right for the scrollbar
-            height: parent.height - y - 10
-            contentWidth: width
-            contentHeight: listCol.height + 12
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
+        // ---------------- header + tabs ----------------
+        Item {
+            id: head
+            x: 18; y: 14
+            width: parent.width - 36
+            height: 40
 
-            WheelHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onWheel: (e) => {
-                    const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                    const f = flick;
-                    f.contentY = Math.max(0, Math.min(Math.max(0, f.contentHeight - f.height), f.contentY - dy));
+            Text {
+                text: "CONTROL CENTRE"
+                color: root.cCream
+                font.family: root.mono; font.bold: true; font.pixelSize: 16; font.letterSpacing: 3
+            }
+            Text {
+                y: 24
+                text: root.tab === "widgets" ? (root.widgetCount + " ON PLANETS" + (WidgetConfig.pinnedCount > 0 ? "  ·  " + WidgetConfig.pinnedCount + " PINNED" : "") + (root.offCount > 0 ? "  ·  " + root.offCount + " OFF" : ""))
+                    : (root.tab === "keys" ? "CLICK A KEY TO CHANGE IT" : "HUD, THEMES, PRESETS & RESETS")
+                color: root.cDim; font.family: root.mono; font.pixelSize: 10; font.letterSpacing: 1.5
+            }
+            OWButton {
+                anchors.right: parent.right; label: "✕"; pad: 8
+                onClicked: root.closeRequested()
+            }
+        }
+
+        Row {
+            id: tabs
+            x: 10; y: 58
+            TabButton { label: "WIDGETS"; key: "widgets" }
+            TabButton { label: "KEYS"; key: "keys" }
+            TabButton { label: "OPTIONS"; key: "options" }
+        }
+        Rectangle { x: 18; y: 88; width: parent.width - 36; height: 1; color: root.cLine }
+
+        // =====================================================================
+        //  WIDGETS TAB
+        // =====================================================================
+        Item {
+            id: widgetsTab
+            opacity: root.tab === "widgets" ? 1.0 : 0.0
+            visible: opacity > 0.01
+            enabled: root.tab === "widgets"
+            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            x: 0; y: 96
+            width: parent.width
+            height: parent.height - 96
+
+            Item {
+                id: toolbar
+                x: 18
+                width: parent.width - 36
+                height: 82
+
+                SearchBox {
+                    width: parent.width - 178
+                    placeholder: "search widgets or planets"
+                    text: root.query
+                    onTextChanged: root.query = text
+                }
+                OWButton {
+                    anchors.right: parent.right
+                    label: "+ ADD"
+                    active: true
+                    onClicked: root.startPick("add", "")
+                }
+                OWButton {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 64
+                    label: root.confirmAll ? "SURE?" : "REMOVE ALL"
+                    danger: root.confirmAll
+                    onClicked: {
+                        if (root.confirmAll) { WidgetConfig.removeAll(); root.expandedId = ""; root.confirmAll = false; }
+                        else root.confirmAll = true;
+                    }
+                }
+                Timer { interval: 3000; running: root.confirmAll; onTriggered: root.confirmAll = false }
+                FieldHeader {
+                    y: 36; width: parent.width; label: "ALL ORBITS"
+                    modified: WidgetConfig.isUiModified("globalSpeed")
+                    onResetClicked: WidgetConfig.resetUiOption("globalSpeed")
+                }
+                OWSlider {
+                    y: 52; width: parent.width
+                    from: 0; to: 10; step: 0.05
+                    value: WidgetConfig.globalSpeed
+                    text: WidgetConfig.globalSpeed.toFixed(2) + "×"
+                    onMoved: (v) => WidgetConfig.setGlobalSpeed(v)
                 }
             }
 
             Column {
-                id: listCol
-                width: flick.width - 10
-                spacing: 0
+                id: statusBars
+                x: 18; y: toolbar.height + 2
+                width: parent.width - 36
+                spacing: 4
 
-                Repeater {
-                    model: root.structure
-                    delegate: Item {
-                        id: del
-                        required property var modelData
-                        width: listCol.width
-                        height: loader.item ? loader.item.height : 0
+                Rectangle {
+                    visible: WidgetConfig.pinnedCount > 0
+                    width: parent.width; height: visible ? 30 : 0; radius: 6
+                    color: "#20D4AF37"; border.width: 1; border.color: "#55D4AF37"
+                    Text {
+                        x: 10; anchors.verticalCenter: parent.verticalCenter
+                        text: "◈  " + WidgetConfig.pinnedCount + " pinned  ·  others dimmed"
+                        color: root.cGold; font.family: root.mono; font.pixelSize: 10
+                    }
+                    OWButton {
+                        anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
+                        implicitHeight: 22; pad: 8; label: "UNPIN ALL"
+                        onClicked: WidgetConfig.unpinAll()
+                    }
+                }
 
-                        Loader {
-                            id: loader
-                            width: parent.width
-                            sourceComponent: del.modelData.kind === "header" ? headerComp : rowComp
+                Rectangle {
+                    visible: root.offCount > 0
+                    width: parent.width; height: visible ? 30 : 0; radius: 6
+                    color: "#14D4AF37"; border.width: 1; border.color: root.cLine
+                    Text {
+                        x: 10; anchors.verticalCenter: parent.verticalCenter
+                        text: root.offCount + " switched off, still on planets"
+                        color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                    }
+                    OWButton {
+                        anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
+                        implicitHeight: 22; pad: 8
+                        label: root.confirmClean ? "SURE?" : "REMOVE THEM"
+                        danger: root.confirmClean
+                        onClicked: {
+                            if (root.confirmClean) { WidgetConfig.removeDisabled(); root.expandedId = ""; root.confirmClean = false; }
+                            else root.confirmClean = true;
                         }
+                    }
+                    Timer { interval: 3000; running: root.confirmClean; onTriggered: root.confirmClean = false }
+                }
+            }
 
-                        Component {
-                            id: headerComp
-                            Item {
-                                id: hdr
-                                width: del.width
-                                height: 38
-                                readonly property bool empty: del.modelData.count === 0
-                                HoverHandler { id: hdrHover }
-                                Rectangle {
-                                    anchors.fill: parent; anchors.topMargin: 6; radius: 7
-                                    color: hdrHover.hovered ? "#1CD4AF37" : "transparent"
-                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                }
-                                Text {
-                                    x: 4
-                                    anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: 8
-                                    text: (del.modelData.collapsed ? "▸  " : "▾  ") + WidgetConfig.planetName(del.modelData.planet).toUpperCase()
-                                          + "  (" + del.modelData.count + ")"
-                                    color: hdr.empty ? root.cOff : root.cGold
-                                    font.family: root.mono
-                                    font.pixelSize: 11
-                                    font.bold: true
-                                    font.letterSpacing: 2
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    anchors.rightMargin: 40
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.toggleCollapse(del.modelData.planet)
-                                }
-                                Text {            // "+" = add a widget ON this planet
-                                    anchors.right: parent.right
-                                    anchors.rightMargin: 8
-                                    anchors.bottom: parent.bottom
-                                    anchors.bottomMargin: 6
-                                    text: "+"
-                                    color: plusMa.containsMouse ? root.cCream : root.cGold
-                                    font.family: root.mono
-                                    font.pixelSize: 16
-                                    font.bold: true
-                                    MouseArea {
-                                        id: plusMa
-                                        anchors.fill: parent
-                                        anchors.margins: -8
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.startPick("add", "", del.modelData.planet)
+            Flickable {
+                id: flick
+                x: 18
+                y: toolbar.height + (statusBars.height > 0 ? statusBars.height + 8 : 8)
+                width: parent.width - 46
+                height: parent.height - y - 10
+                contentWidth: width
+                contentHeight: listCol.height + 12
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (e) => {
+                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
+                        flick.contentY = Math.max(0, Math.min(Math.max(0, flick.contentHeight - flick.height), flick.contentY - dy));
+                    }
+                }
+
+                Column {
+                    id: listCol
+                    width: flick.width - 10
+                    spacing: 0
+
+                    Repeater {
+                        model: root.structure
+                        delegate: Item {
+                            id: del
+                            required property var modelData
+                            width: listCol.width
+                            height: loader.item ? loader.item.height : 0
+
+                            Loader {
+                                id: loader
+                                width: parent.width
+                                sourceComponent: del.modelData.kind === "header" ? headerComp : rowComp
+                            }
+
+                            Component {
+                                id: headerComp
+                                Item {
+                                    id: hdr
+                                    width: del.width
+                                    height: 38
+                                    readonly property bool empty: del.modelData.count === 0
+                                    HoverHandler { id: hdrHover }
+                                    Rectangle {
+                                        anchors.fill: parent; anchors.topMargin: 6; radius: 7
+                                        color: hdrHover.hovered ? "#1CD4AF37" : "transparent"
+                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                     }
+                                    Rectangle {
+                                        x: 4; anchors.bottom: parent.bottom; anchors.bottomMargin: 11
+                                        width: 7; height: 7; radius: 4
+                                        color: WidgetConfig.planetColor(del.modelData.planet)
+                                        opacity: hdr.empty ? 0.35 : 0.95
+                                    }
+                                    Text {
+                                        x: 17
+                                        anchors.bottom: parent.bottom; anchors.bottomMargin: 8
+                                        text: (del.modelData.collapsed ? "▸  " : "▾  ") + WidgetConfig.planetName(del.modelData.planet).toUpperCase()
+                                              + "  (" + del.modelData.count + ")"
+                                        color: hdr.empty ? root.cOff : root.cGold
+                                        font.family: root.mono; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1.8
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent; anchors.rightMargin: 40; cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.toggleCollapse(del.modelData.planet)
+                                    }
+                                    Text {
+                                        anchors.right: parent.right; anchors.rightMargin: 8; anchors.bottom: parent.bottom; anchors.bottomMargin: 6
+                                        text: "+"; color: plusMa.containsMouse ? root.cCream : root.cGold
+                                        font.family: root.mono; font.pixelSize: 16; font.bold: true
+                                        MouseArea {
+                                            id: plusMa; anchors.fill: parent; anchors.margins: -8; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.startPick("add", "", del.modelData.planet)
+                                        }
+                                    }
+                                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.cLine }
+                                }
+                            }
+
+                            Component {
+                                id: rowComp
+                                Item {
+                                    id: row
+                                    readonly property string wid: del.modelData.id
+                                    readonly property var d: WidgetConfig.entry(wid)
+                                    readonly property bool open: root.expandedId === wid
+                                    readonly property bool pinned: WidgetConfig.isPinned(wid)
+                                    readonly property bool modified: d !== null && (WidgetConfig.overrides[wid] !== undefined || d._extra)
+                                    width: del.width
+                                    height: rowHead.height + 2
+
+                                    Rectangle {
+                                        id: rowHead
+                                        width: parent.width; height: 36; radius: 8
+                                        color: row.open ? "#24D4AF37" : (rowHover.hovered ? "#18D4AF37" : "transparent")
+                                        border.width: row.open ? 1 : 0; border.color: "#44D4AF37"
+                                        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                        HoverHandler { id: rowHover }
+                                        Rectangle {
+                                            x: 2; anchors.verticalCenter: parent.verticalCenter
+                                            width: 3; height: row.open ? 20 : (rowHover.hovered ? 14 : 0); radius: 2; color: root.cGold
+                                            opacity: (row.open || rowHover.hovered) ? 1.0 : 0.0
+                                            Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                            Behavior on opacity { NumberAnimation { duration: 140 } }
+                                        }
+
+                                        OWSwitch {
+                                            x: 8; anchors.verticalCenter: parent.verticalCenter
+                                            on: row.d !== null && row.d.enabled
+                                            onToggled: (v) => WidgetConfig.setField(row.wid, "enabled", v)
+                                        }
+                                        Text {
+                                            x: 46; anchors.verticalCenter: parent.verticalCenter
+                                            width: parent.width - 46 - 92
+                                            text: row.d ? WidgetConfig.widgetName(row.d) : ""
+                                            elide: Text.ElideRight
+                                            color: row.d && row.d.enabled ? root.cCream : root.cOff
+                                            font.family: root.mono; font.pixelSize: 12
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent; anchors.leftMargin: 40; anchors.rightMargin: 82
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.toggleExpand(row.wid)
+                                        }
+                                        // Pin toggle icon
+                                        Text {
+                                            visible: row.pinned || rowHover.hovered || row.open
+                                            anchors.right: parent.right; anchors.rightMargin: 56; anchors.verticalCenter: parent.verticalCenter
+                                            text: row.pinned ? "◈" : "◇"
+                                            color: row.pinned ? root.cGold : (pinMa.containsMouse ? root.cCream : root.cDim)
+                                            font.family: root.mono; font.pixelSize: 13
+                                            MouseArea {
+                                                id: pinMa; anchors.fill: parent; anchors.margins: -6; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: WidgetConfig.togglePin(row.wid)
+                                            }
+                                        }
+                                        // Remove icon
+                                        Text {
+                                            visible: rowHover.hovered || row.open
+                                            anchors.right: parent.right; anchors.rightMargin: 34; anchors.verticalCenter: parent.verticalCenter
+                                            text: "✕"; color: rmMa.containsMouse ? root.cDanger : root.cDim; font.pixelSize: 12
+                                            MouseArea {
+                                                id: rmMa; anchors.fill: parent; anchors.margins: -7; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: { WidgetConfig.removeWidget(row.wid); if (root.expandedId === row.wid) root.expandedId = ""; }
+                                            }
+                                        }
+                                        Text {
+                                            anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter
+                                            text: (row.modified ? "● " : "") + (row.open ? "◂" : "▸")
+                                            color: row.modified ? root.cGold : root.cDim
+                                            font.family: root.mono; font.pixelSize: 11
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        visible: root.structure.length === 0
+                        width: listCol.width; topPadding: 24; horizontalAlignment: Text.AlignHCenter
+                        text: root.query !== "" ? "Nothing matches '" + root.query + "'." : "No widgets on any planet. Use + ADD."
+                        color: root.cDim; font.family: root.mono; font.pixelSize: 11
+                    }
+                }
+            }
+
+            OWScroll { target: flick }
+        }
+
+        // =====================================================================
+        //  KEYS TAB
+        // =====================================================================
+        Item {
+            id: keysTab
+            opacity: root.tab === "keys" ? 1.0 : 0.0
+            visible: opacity > 0.01
+            enabled: root.tab === "keys"
+            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            x: 0; y: 96
+            width: parent.width
+            height: parent.height - 96
+
+            Rectangle {
+                id: keyBanner
+                x: 18; y: 6; width: parent.width - 36; height: 30; radius: 6
+                color: root.keyMsg !== "" ? "#22D9694A" : (root.capturing !== "" ? "#22D4AF37" : "transparent")
+                border.width: (root.keyMsg !== "" || root.capturing !== "") ? 1 : 0
+                border.color: root.keyMsg !== "" ? root.cDanger : root.cGold
+                Text {
+                    anchors.centerIn: parent; width: parent.width - 16
+                    horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+                    text: root.keyMsg !== "" ? root.keyMsg
+                        : (root.capturing !== "" ? "Press key for “" + Keybinds.labelOf(root.capturing) + "”" + (root.capHeld !== "" ? "  " + root.capHeld + " + …" : "") + "  ·  Esc cancels" : "")
+                    color: root.keyMsg !== "" ? root.cDanger : root.cGold
+                    font.family: root.mono; font.pixelSize: 11
+                }
+            }
+
+            Flickable {
+                id: keyFlick
+                x: 18; y: 44; width: parent.width - 46; height: parent.height - y - 52
+                contentWidth: width; contentHeight: keyCol.height + 12; clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (e) => {
+                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
+                        keyFlick.contentY = Math.max(0, Math.min(Math.max(0, keyFlick.contentHeight - keyFlick.height), keyFlick.contentY - dy));
+                    }
+                }
+
+                Column {
+                    id: keyCol
+                    width: keyFlick.width - 10
+
+                    Repeater {
+                        model: Keybinds.actions
+                        delegate: Item {
+                            id: kr
+                            required property var modelData
+                            required property int index
+                            readonly property bool newGroup: index === 0 || Keybinds.actions[index - 1].group !== modelData.group
+                            readonly property bool capt: root.capturing === modelData.id
+                            readonly property bool custom: Keybinds.isCustom(modelData.id)
+                            width: keyCol.width
+                            height: (newGroup ? 34 : 0) + 38
+
+                            Item {
+                                visible: kr.newGroup; width: parent.width; height: 34
+                                Text {
+                                    anchors.bottom: parent.bottom; anchors.bottomMargin: 6
+                                    text: kr.modelData.group.toUpperCase(); color: root.cGold
+                                    font.family: root.mono; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2
                                 }
                                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.cLine }
                             }
-                        }
-
-                        Component {
-                            id: rowComp
-                            Item {
-                                id: row
-                                readonly property string wid: del.modelData.id
-                                readonly property var d: WidgetConfig.entry(wid)
-                                readonly property bool open: root.expandedId === wid
-                                readonly property bool modified: d !== null && (WidgetConfig.overrides[wid] !== undefined || d._extra)
-                                readonly property string keyAction: d ? Keybinds.forWidget(d.source) : ""
-                                width: del.width
-                                height: rowHead.height + (open ? editor.height + 8 : 0)
-
-                                // ---- row head ----
-                                Rectangle {
-                                    id: rowHead
-                                    width: parent.width
-                                    height: 36
-                                    radius: 8
-                                    color: row.open ? "#24D4AF37" : (rowHover.hovered ? "#18D4AF37" : "transparent")
-                                    border.width: row.open ? 1 : 0
-                                    border.color: "#44D4AF37"
-                                    Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                    HoverHandler { id: rowHover }
-                                    Rectangle {
-                                        x: 2
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 3
-                                        height: row.open ? 20 : (rowHover.hovered ? 14 : 0)
-                                        radius: 2
-                                        color: root.cGold
-                                        opacity: (row.open || rowHover.hovered) ? 1.0 : 0.0
-                                        Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                        Behavior on opacity { NumberAnimation { duration: 140 } }
-                                    }
-
-                                    OWSwitch {
-                                        x: 8
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        on: row.d !== null && row.d.enabled
-                                        onToggled: (v) => WidgetConfig.setField(row.wid, "enabled", v)
-                                    }
-                                    Text {
-                                        x: 46
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: parent.width - 46 - 76
-                                        text: row.d ? WidgetConfig.widgetName(row.d) : ""
-                                        elide: Text.ElideRight
-                                        color: row.d && row.d.enabled ? root.cCream : root.cOff
-                                        font.family: root.mono
-                                        font.pixelSize: 12
-                                    }
-                                    MouseArea {
-                                        id: headMa
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 40
-                                        anchors.rightMargin: 62
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.toggleExpand(row.wid)
-                                    }
-                                    Text {                         // remove from this planet (shown on hover / while open)
-                                        visible: rowHover.hovered || row.open
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 34
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: "✕"
-                                        color: rmMa.containsMouse ? root.cDanger : root.cDim
-                                        font.pixelSize: 12
-                                        MouseArea {
-                                            id: rmMa
-                                            anchors.fill: parent
-                                            anchors.margins: -7
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: { WidgetConfig.removeWidget(row.wid); if (root.expandedId === row.wid) root.expandedId = ""; }
-                                        }
-                                    }
-                                    Text {
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 8
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: (row.modified ? "● " : "") + (row.open ? "▾" : "▸")
-                                        color: row.modified ? root.cGold : root.cDim
-                                        font.family: root.mono
-                                        font.pixelSize: 11
-                                    }
-                                }
-
-                                // ---- editor (created only while the row is open) ----
-                                Loader {
-                                    id: editor
-                                    active: row.open && row.d !== null
-                                    y: rowHead.height + 6
-                                    x: 8
-                                    width: parent.width - 16
-                                    sourceComponent: editorComp
-                                }
-
-                                Component {
-                                    id: editorComp
-                                    Item {
-                                        id: editorItem
-                                        width: editor.width
-                                        height: edCol.height
-
-                                        Column {
-                                            id: edCol
-                                            width: parent.width
-                                            spacing: 6
-
-                                            FieldLabel { text: "WIDGET" }
-                                            OWButton {
-                                                label: (row.d ? WidgetConfig.widgetName(row.d) : "") + "   ▾ change"
-                                                onClicked: root.startPick("swap", row.wid)
-                                            }
-
-                                            FieldLabel { text: "PLANET"; topPadding: 4 }
-                                            Flow {
-                                                width: parent.width
-                                                spacing: 5
-                                                Repeater {
-                                                    model: WidgetConfig.planets
-                                                    delegate: OWButton {
-                                                        required property var modelData
-                                                        label: modelData.name
-                                                        pad: 7
-                                                        active: row.d !== null && row.d.host === modelData.id
-                                                        onClicked: { WidgetConfig.setField(row.wid, "host", modelData.id); root.lastHost = modelData.id; root.flyRequested(modelData.id); }
-                                                    }
-                                                }
-                                            }
-
-                                            FieldLabel { text: "SIZE"; topPadding: 4 }
-                                            OWSlider {
-                                                width: parent.width
-                                                from: 0.1; to: 5.0; step: 0.05
-                                                value: row.d ? row.d.size : 1
-                                                text: (row.d ? row.d.size : 1).toFixed(2) + "×"
-                                                onMoved: (v) => WidgetConfig.setField(row.wid, "size", v)
-                                            }
-
-                                            FieldLabel { text: "ORBIT SPEED  (− = other way, 0 = parked)" }
-                                            OWSlider {
-                                                width: parent.width
-                                                from: -2.0; to: 2.0; step: 0.01
-                                                bipolar: true
-                                                value: row.d ? row.d.orbit.speed : 0
-                                                text: row.d ? root.fmtSpeed(row.d.orbit.speed) : ""
-                                                onMoved: (v) => WidgetConfig.setField(row.wid, "speed", Math.abs(v) < 0.015 ? 0 : v)
-                                            }
-
-                                            FieldLabel { text: "ORBIT DISTANCE" }
-                                            OWSlider {
-                                                width: parent.width
-                                                from: 0.5; to: 10.0; step: 0.05
-                                                value: row.d ? row.d.orbit.k : 2
-                                                text: (row.d ? row.d.orbit.k : 2).toFixed(2) + " radii"
-                                                onMoved: (v) => WidgetConfig.setField(row.wid, "k", v)
-                                            }
-
-                                            FieldLabel { text: "VISIBLE" }
-                                            Row {
-                                                spacing: 6
-                                                OWButton { label: "NEAR PLANET"; active: row.d !== null && row.d.show !== "always"; onClicked: WidgetConfig.setField(row.wid, "show", "focus") }
-                                                OWButton { label: "ALWAYS"; active: row.d !== null && row.d.show === "always"; onClicked: WidgetConfig.setField(row.wid, "show", "always") }
-                                            }
-
-                                            FieldLabel { text: "ORBIT AXIS"; topPadding: 4 }
-                                            OWSlider {
-                                                width: parent.width
-                                                from: -3.14; to: 3.14; step: 0.05
-                                                typedScale: 57.2958
-                                                value: row.d ? row.d.orbit.tilt : 0
-                                                text: "tilt " + Math.round((row.d ? row.d.orbit.tilt : 0) * 57.2958) + "°"
-                                                onMoved: (v) => WidgetConfig.setField(row.wid, "tilt", v)
-                                            }
-                                            OWSlider {
-                                                width: parent.width
-                                                from: 0; to: 6.28; step: 0.05
-                                                typedScale: 57.2958
-                                                value: row.d ? (row.d.orbit.node || 0) : 0
-                                                text: "turn " + Math.round((row.d ? (row.d.orbit.node || 0) : 0) * 57.2958) + "°"
-                                                onMoved: (v) => WidgetConfig.setField(row.wid, "node", v)
-                                            }
-
-                                            FieldLabel { visible: row.keyAction !== ""; text: "KEY"; topPadding: 4 }
-                                            Row {
-                                                visible: row.keyAction !== ""
-                                                spacing: 10
-                                                OWButton {
-                                                    readonly property string curSeq: Keybinds.seq(row.keyAction)
-                                                    label: root.capturing === row.keyAction ? "PRESS A KEY…" : (curSeq === "" ? "NONE" : Keybinds.pretty(curSeq))
-                                                    dim: curSeq === "" && root.capturing !== row.keyAction
-                                                    active: root.capturing === row.keyAction || Keybinds.isCustom(row.keyAction)
-                                                    onClicked: { if (root.capturing === row.keyAction) { root.capturing = ""; root.keyMsg = ""; } else root.startCapture(row.keyAction); }
-                                                }
-                                                OWButton {
-                                                    visible: Keybinds.seq(row.keyAction) !== "" && root.capturing !== row.keyAction
-                                                    label: "NONE"
-                                                    pad: 7
-                                                    onClicked: { Keybinds.unbind(row.keyAction); root.keyMsg = ""; }
-                                                }
-                                                Text {
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    text: root.keyMsg !== "" ? root.keyMsg : (root.capturing === row.keyAction ? "Esc cancels  ·  Del unbinds" : Keybinds.labelOf(row.keyAction))
-                                                    color: root.keyMsg !== "" ? root.cDanger : root.cDim
-                                                    font.family: root.mono
-                                                    font.pixelSize: 10
-                                                }
-                                            }
-
-                                            Column {
-                                                id: cfgCol
-                                                width: parent.width
-                                                spacing: 6
-                                                readonly property var schema: {
-                                                    const c = row.d ? WidgetConfig.catalogEntry(row.d.source) : null;
-                                                    return c && Array.isArray(c.settings) ? c.settings : [];
-                                                }
-                                                visible: schema.length > 0
-
-                                                FieldLabel { text: "WIDGET OPTIONS"; topPadding: 4 }
-
-                                                Repeater {
-                                                    model: cfgCol.schema
-                                                    delegate: Column {
-                                                        id: opt
-                                                        required property var modelData
-                                                        readonly property var s: modelData
-                                                        readonly property var cur: (row.d && row.d.cfg && row.d.cfg[s.key] !== undefined) ? row.d.cfg[s.key] : s.default
-                                                        readonly property string lbl: String(s.label || s.key)
-                                                        width: cfgCol.width
-                                                        spacing: 4
-
-                                                        // toggle: switch + label on one line; every other type: label, then the control
-                                                        Row {
-                                                            visible: opt.s.type === "toggle"
-                                                            spacing: 8
-                                                            height: 18
-                                                            OWSwitch { on: opt.cur === true; onToggled: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v) }
-                                                            FieldLabel { anchors.verticalCenter: parent.verticalCenter; text: opt.lbl.toUpperCase() }
-                                                        }
-                                                        FieldLabel { visible: opt.s.type !== "toggle"; text: opt.lbl.toUpperCase() }
-
-                                                        OWSlider {
-                                                            visible: opt.s.type === "number"
-                                                            width: opt.width
-                                                            from: opt.s.min !== undefined ? opt.s.min : 0
-                                                            to: opt.s.max !== undefined ? opt.s.max : 100
-                                                            step: opt.s.step !== undefined ? opt.s.step : 1
-                                                            value: Number(opt.cur)
-                                                            text: String(Math.round(Number(opt.cur) * 1000) / 1000) + (opt.s.unit ? " " + opt.s.unit : "")
-                                                            onMoved: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v)
-                                                        }
-
-                                                        Flow {
-                                                            visible: opt.s.type === "choice"
-                                                            width: opt.width
-                                                            spacing: 5
-                                                            Repeater {
-                                                                model: opt.s.type === "choice" && Array.isArray(opt.s.choices) ? opt.s.choices : []
-                                                                delegate: OWButton {
-                                                                    required property var modelData
-                                                                    readonly property var val: (typeof modelData === "object") ? modelData.value : modelData
-                                                                    label: String((typeof modelData === "object") ? (modelData.label !== undefined ? modelData.label : modelData.value) : modelData)
-                                                                    pad: 7
-                                                                    active: opt.cur === val
-                                                                    onClicked: WidgetConfig.setSetting(row.wid, opt.s.key, val)
-                                                                }
-                                                            }
-                                                        }
-
-                                                        OWTextField {
-                                                            visible: opt.s.type === "text" || opt.s.type === "font" || opt.s.type === "file" || opt.s.type === "color"
-                                                            width: opt.width
-                                                            showSwatch: opt.s.type === "color"
-                                                            value: String(opt.cur)
-                                                            onEdited: (v) => WidgetConfig.setSetting(row.wid, opt.s.key, v)
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            Row {
-                                                spacing: 6
-                                                topPadding: 6
-                                                OWButton { label: "SHOW PLANET"; onClicked: root.flyRequested(row.d ? row.d.host : "") }
-                                                OWButton { label: "RESET"; dim: !row.modified; onClicked: WidgetConfig.resetWidget(row.wid) }
-                                                OWButton { label: "REMOVE"; danger: true; onClicked: { WidgetConfig.removeWidget(row.wid); root.expandedId = ""; } }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Text {
-                    visible: root.structure.length === 0
-                    width: listCol.width
-                    topPadding: 24
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.query !== "" ? "Nothing matches \"" + root.query + "\"." : "No widgets on any planet. Use + ADD."
-                    color: root.cDim
-                    font.family: root.mono
-                    font.pixelSize: 11
-                }
-            }
-        }
-
-        OWScroll { target: flick }
-    }
-
-    // =====================================================================
-    //  KEYS TAB
-    // =====================================================================
-    Item {
-        id: keysTab
-        visible: root.tab === "keys"
-        x: 0; y: 96
-        width: parent.width
-        height: parent.height - 96
-
-        Rectangle {
-            id: keyBanner
-            x: 18; y: 6
-            width: parent.width - 36
-            height: 30
-            radius: 3
-            color: root.keyMsg !== "" ? "#22D9694A" : (root.capturing !== "" ? "#22D4AF37" : "transparent")
-            border.width: (root.keyMsg !== "" || root.capturing !== "") ? 1 : 0
-            border.color: root.keyMsg !== "" ? root.cDanger : root.cGold
-            Text {
-                anchors.centerIn: parent
-                width: parent.width - 16
-                horizontalAlignment: Text.AlignHCenter
-                elide: Text.ElideRight
-                text: root.keyMsg !== "" ? root.keyMsg
-                    : (root.capturing !== "" ? "Press the key for “" + Keybinds.labelOf(root.capturing) + "”" + (root.capHeld !== "" ? "   " + root.capHeld + " + …" : "")
-                                              + "   ·   Esc cancels   ·   Del unbinds" : "")
-                color: root.keyMsg !== "" ? root.cDanger : root.cGold
-                font.family: root.mono
-                font.pixelSize: 11
-            }
-        }
-
-        Flickable {
-            id: keyFlick
-            x: 18
-            y: 44
-            width: parent.width - 46
-            height: parent.height - y - 52
-            contentWidth: width
-            contentHeight: keyCol.height + 12
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            WheelHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onWheel: (e) => {
-                    const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                    const f = keyFlick;
-                    f.contentY = Math.max(0, Math.min(Math.max(0, f.contentHeight - f.height), f.contentY - dy));
-                }
-            }
-
-            Column {
-                id: keyCol
-                width: keyFlick.width - 10
-
-                // ---- rebindable ----
-                Repeater {
-                    model: Keybinds.actions
-                    delegate: Item {
-                        id: kr
-                        required property var modelData
-                        required property int index
-                        readonly property bool newGroup: index === 0 || Keybinds.actions[index - 1].group !== modelData.group
-                        readonly property bool capt: root.capturing === modelData.id
-                        readonly property bool custom: Keybinds.isCustom(modelData.id)
-                        width: keyCol.width
-                        height: (newGroup ? 34 : 0) + 38
-
-                        Item {
-                            visible: kr.newGroup
-                            width: parent.width; height: 34
-                            Text {
-                                anchors.bottom: parent.bottom
-                                anchors.bottomMargin: 6
-                                text: kr.modelData.group.toUpperCase()
-                                color: root.cGold
-                                font.family: root.mono
-                                font.pixelSize: 11
-                                font.bold: true
-                                font.letterSpacing: 2
-                            }
-                            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.cLine }
-                        }
-                        Rectangle {
-                            y: kr.newGroup ? 34 : 0
-                            width: parent.width; height: 38
-                            radius: 8
-                            color: kr.capt ? "#24D4AF37" : (krHover.hovered ? "#15D4AF37" : "transparent")
-                            Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                            HoverHandler { id: krHover }
                             Rectangle {
-                                x: 2; anchors.verticalCenter: parent.verticalCenter
-                                width: 3; radius: 2; color: root.cGold
-                                height: kr.capt ? 20 : (krHover.hovered ? 14 : 0)
-                                opacity: (kr.capt || krHover.hovered) ? 1.0 : 0.0
-                                Behavior on height { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                Behavior on opacity { NumberAnimation { duration: 140 } }
-                            }
-                            Column {
-                                x: 10
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 1
-                                Text { text: kr.modelData.label; color: root.cCream; font.family: root.mono; font.pixelSize: 12 }
-                                Text { visible: kr.modelData.hint !== ""; text: kr.modelData.hint; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
-                            }
-                            Row {
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 6
-                                Text {
-                                    visible: kr.custom && !kr.capt
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: "↺"
-                                    color: undoMa.containsMouse ? root.cCream : root.cDim
-                                    font.pixelSize: 14
-                                    MouseArea {
-                                        id: undoMa
-                                        anchors.fill: parent
-                                        anchors.margins: -6
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
+                                y: kr.newGroup ? 34 : 0; width: parent.width; height: 38; radius: 8
+                                color: kr.capt ? "#24D4AF37" : (krHover.hovered ? "#15D4AF37" : "transparent")
+                                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                HoverHandler { id: krHover }
+                                Rectangle {
+                                    x: 2; anchors.verticalCenter: parent.verticalCenter; width: 3; radius: 2; color: root.cGold
+                                    height: kr.capt ? 20 : (krHover.hovered ? 14 : 0)
+                                    opacity: (kr.capt || krHover.hovered) ? 1.0 : 0.0
+                                    Behavior on height { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    Behavior on opacity { NumberAnimation { duration: 140 } }
+                                }
+                                Column {
+                                    x: 10; anchors.verticalCenter: parent.verticalCenter; spacing: 1
+                                    Text { text: kr.modelData.label; color: root.cCream; font.family: root.mono; font.pixelSize: 12 }
+                                    Text { visible: kr.modelData.hint !== ""; text: kr.modelData.hint; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
+                                }
+                                Row {
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: 6
+                                    OWResetBtn {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        shown: kr.custom && !kr.capt
                                         onClicked: { WidgetConfig.resetKey(kr.modelData.id); root.keyMsg = ""; }
                                     }
-                                }
-                                OWButton {
-                                    visible: Keybinds.seq(kr.modelData.id) !== "" && !kr.capt
-                                    pad: 7
-                                    implicitHeight: 26
-                                    label: "✕"
-                                    onClicked: { Keybinds.unbind(kr.modelData.id); root.keyMsg = ""; }
-                                }
-                                OWButton {
-                                    readonly property string curSeq: Keybinds.seq(kr.modelData.id)
-                                    pad: 12
-                                    implicitHeight: 26
-                                    label: kr.capt ? "PRESS A KEY…" : (curSeq === "" ? "NONE" : Keybinds.pretty(curSeq))
-                                    dim: curSeq === "" && !kr.capt
-                                    active: kr.capt || kr.custom
-                                    onClicked: { if (kr.capt) { root.capturing = ""; root.keyMsg = ""; } else root.startCapture(kr.modelData.id); }
+                                    OWButton {
+                                        visible: Keybinds.seq(kr.modelData.id) !== "" && !kr.capt
+                                        pad: 7; implicitHeight: 26; label: "✕"
+                                        onClicked: { Keybinds.unbind(kr.modelData.id); root.keyMsg = ""; }
+                                    }
+                                    OWButton {
+                                        readonly property string curSeq: Keybinds.seq(kr.modelData.id)
+                                        pad: 10; implicitHeight: 26
+                                        label: kr.capt ? "PRESS A KEY…" : (curSeq === "" ? "NONE" : Keybinds.pretty(curSeq))
+                                        dim: curSeq === "" && !kr.capt
+                                        active: kr.capt || kr.custom
+                                        onClicked: { if (kr.capt) { root.capturing = ""; root.keyMsg = ""; } else root.startCapture(kr.modelData.id); }
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                // ---- fixed keys (reference) ----
-                Repeater {
-                    model: Keybinds.reference
-                    delegate: Column {
-                        id: refGroup
-                        required property var modelData
-                        width: keyCol.width
-                        Item {
-                            width: parent.width; height: 40
-                            Text {
-                                anchors.bottom: parent.bottom
-                                anchors.bottomMargin: 6
-                                text: refGroup.modelData.group.toUpperCase()
-                                color: root.cDim
-                                font.family: root.mono
-                                font.pixelSize: 11
-                                font.bold: true
-                                font.letterSpacing: 2
-                            }
-                            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.cLine }
-                        }
-                        Repeater {
-                            model: refGroup.modelData.rows
-                            delegate: Item {
-                                required property var modelData
-                                width: keyCol.width; height: 26
+                    Repeater {
+                        model: Keybinds.reference
+                        delegate: Column {
+                            id: refGroup
+                            required property var modelData
+                            width: keyCol.width
+                            Item {
+                                width: parent.width; height: 40
                                 Text {
-                                    width: 118
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData[0]
-                                    color: root.cCream
-                                    font.family: root.mono
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
+                                    anchors.bottom: parent.bottom; anchors.bottomMargin: 6
+                                    text: refGroup.modelData.group.toUpperCase(); color: root.cDim
+                                    font.family: root.mono; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2
                                 }
-                                Text {
-                                    x: 126
-                                    width: parent.width - 126
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData[1]
-                                    color: root.cDim
-                                    font.family: root.mono
-                                    font.pixelSize: 10
-                                    elide: Text.ElideRight
+                                Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: root.cLine }
+                            }
+                            Repeater {
+                                model: refGroup.modelData.rows
+                                delegate: Item {
+                                    required property var modelData
+                                    width: keyCol.width; height: 26
+                                    Text { width: 118; anchors.verticalCenter: parent.verticalCenter; text: modelData[0]; color: root.cCream; font.family: root.mono; font.pixelSize: 11; elide: Text.ElideRight }
+                                    Text { x: 126; width: parent.width - 126; anchors.verticalCenter: parent.verticalCenter; text: modelData[1]; color: root.cDim; font.family: root.mono; font.pixelSize: 10; elide: Text.ElideRight }
                                 }
                             }
                         }
                     }
-                }
 
-                Text {
-                    width: keyCol.width
-                    topPadding: 18
-                    wrapMode: Text.Wrap
-                    text: "These are the shell's own keys; they work while the scene has keyboard focus. Hyprland-level binds "
-                        + "(outerwilds.lua) are separate: from there use  qs -c outerwilds ipc call  map | rumor | hud | keys | settings | launcher  toggle."
-                    color: root.cOff
-                    font.family: root.mono
-                    font.pixelSize: 10
+                    Text {
+                        width: keyCol.width; topPadding: 18; wrapMode: Text.Wrap
+                        text: "These are the shell's own keys; they work while the scene has keyboard focus. Hyprland-level binds (outerwilds.lua) are separate: use qs -c outerwilds ipc call map | rumor | hud | keys | settings | launcher toggle."
+                        color: root.cOff; font.family: root.mono; font.pixelSize: 10
+                    }
                 }
             }
+            OWScroll { target: keyFlick }
+
+            Item {
+                x: 18; y: parent.height - 40; width: parent.width - 36; height: 28
+                OWButton { label: "RESET ALL KEYS"; onClicked: { WidgetConfig.resetKeys(); root.keyMsg = ""; root.capturing = ""; } }
+            }
         }
-        OWScroll { target: keyFlick }
+
+        // =====================================================================
+        //  OPTIONS TAB (smooth accordions + per-option resets + HUD + presets)
+        // =====================================================================
+        Item {
+            id: optionsTab
+            opacity: root.tab === "options" ? 1.0 : 0.0
+            visible: opacity > 0.01
+            enabled: root.tab === "options"
+            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            x: 0; y: 96
+            width: parent.width
+            height: parent.height - 96
+
+            Flickable {
+                id: optFlick
+                x: 18; y: 4
+                width: parent.width - 46
+                height: parent.height - 12
+                contentWidth: width
+                contentHeight: optCol.height + 16
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (e) => {
+                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
+                        optFlick.contentY = Math.max(0, Math.min(Math.max(0, optFlick.contentHeight - optFlick.height), optFlick.contentY - dy));
+                    }
+                }
+
+                Column {
+                    id: optCol
+                    width: optFlick.width - 10
+                    spacing: 6
+
+                    // ---- 1. SATELLITE HUD (master + individual element options) ----
+                    OptAccordion {
+                        optKey: "hud"; title: "Satellite HUD"; subtitle: "Gauges, audio globe, thrust & prompts"
+                        hasSwitch: true; switchOn: WidgetConfig.showHud
+                        onSwitchToggled: (v) => WidgetConfig.setShowHud(v)
+
+                        FieldHeader { label: "MASTER OPACITY"; modified: WidgetConfig.isUiModified("hudOpacity"); onResetClicked: WidgetConfig.resetUiOption("hudOpacity") }
+                        OWSlider { width: parent.width; from: 0.1; to: 1.0; step: 0.05; value: WidgetConfig.hudOpacity; text: Math.round(WidgetConfig.hudOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setHudOpacity(v) }
+                        FieldHeader { label: "MASTER SCALE"; modified: WidgetConfig.isUiModified("hudScale"); onResetClicked: WidgetConfig.resetUiOption("hudScale") }
+                        OWSlider { width: parent.width; from: 0.5; to: 1.5; step: 0.05; value: WidgetConfig.hudScale; text: WidgetConfig.hudScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setHudScale(v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        Text { text: "GAUGE CLUSTER"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        OWToggleRow { label: "Show gauges (RAM / CPU / GPU)"; on: WidgetConfig.hudShowGauges; modified: WidgetConfig.isUiModified("hudShowGauges"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowGauges", v); onResetClicked: WidgetConfig.resetUiOption("hudShowGauges") }
+                        OWToggleRow { label: "Show astronaut silhouette"; on: WidgetConfig.hudShowAstronaut; modified: WidgetConfig.isUiModified("hudShowAstronaut"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowAstronaut", v); onResetClicked: WidgetConfig.resetUiOption("hudShowAstronaut") }
+                        OWToggleRow { label: "Show percentage labels"; on: WidgetConfig.hudShowGaugeLabels; modified: WidgetConfig.isUiModified("hudShowGaugeLabels"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowGaugeLabels", v); onResetClicked: WidgetConfig.resetUiOption("hudShowGaugeLabels") }
+                        FieldHeader { label: "GAUGE SCALE"; modified: WidgetConfig.isUiModified("hudGaugeScale"); onResetClicked: WidgetConfig.resetUiOption("hudGaugeScale") }
+                        OWSlider { width: parent.width; from: 0.5; to: 1.8; step: 0.05; value: WidgetConfig.hudGaugeScale; text: WidgetConfig.hudGaugeScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("hudGaugeScale", v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        Text { text: "AUDIO GLOBE"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        OWToggleRow { label: "Show audio globe"; on: WidgetConfig.hudShowGlobe; modified: WidgetConfig.isUiModified("hudShowGlobe"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowGlobe", v); onResetClicked: WidgetConfig.resetUiOption("hudShowGlobe") }
+                        OWToggleRow { label: "Show stand beam"; on: WidgetConfig.hudShowGlobeStand; modified: WidgetConfig.isUiModified("hudShowGlobeStand"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowGlobeStand", v); onResetClicked: WidgetConfig.resetUiOption("hudShowGlobeStand") }
+                        FieldHeader { label: "GLOBE SCALE"; modified: WidgetConfig.isUiModified("hudGlobeScale"); onResetClicked: WidgetConfig.resetUiOption("hudGlobeScale") }
+                        OWSlider { width: parent.width; from: 0.5; to: 1.8; step: 0.05; value: WidgetConfig.hudGlobeScale; text: WidgetConfig.hudGlobeScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("hudGlobeScale", v) }
+                        FieldHeader { label: "GLOBE TINT"; modified: WidgetConfig.isUiModified("hudGlobeColor"); onResetClicked: WidgetConfig.resetUiOption("hudGlobeColor") }
+                        OWColorPicker { width: parent.width; allowBlank: false; defaultValue: "#6FEAEE"; value: WidgetConfig.hudGlobeColor; onEdited: (v) => WidgetConfig.setUiOpt("hudGlobeColor", v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        Text { text: "THRUST INDICATOR"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        OWToggleRow { label: "Show thrust axes"; on: WidgetConfig.hudShowThrust; modified: WidgetConfig.isUiModified("hudShowThrust"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowThrust", v); onResetClicked: WidgetConfig.resetUiOption("hudShowThrust") }
+                        OWToggleRow { label: "Show speed readout"; on: WidgetConfig.hudShowSpeed; modified: WidgetConfig.isUiModified("hudShowSpeed"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowSpeed", v); onResetClicked: WidgetConfig.resetUiOption("hudShowSpeed") }
+                        FieldHeader { label: "THRUST SCALE"; modified: WidgetConfig.isUiModified("hudThrustScale"); onResetClicked: WidgetConfig.resetUiOption("hudThrustScale") }
+                        OWSlider { width: parent.width; from: 0.5; to: 1.8; step: 0.05; value: WidgetConfig.hudThrustScale; text: WidgetConfig.hudThrustScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("hudThrustScale", v) }
+                        FieldHeader { label: "THRUST COLOUR"; modified: WidgetConfig.isUiModified("hudThrustColor"); onResetClicked: WidgetConfig.resetUiOption("hudThrustColor") }
+                        OWColorPicker { width: parent.width; allowBlank: false; defaultValue: "#C6F6F1"; value: WidgetConfig.hudThrustColor; onEdited: (v) => WidgetConfig.setUiOpt("hudThrustColor", v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        Text { text: "PROMPTS & TYPOGRAPHY"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        OWToggleRow { label: "Show top-right key prompts"; on: WidgetConfig.hudShowPrompts; modified: WidgetConfig.isUiModified("hudShowPrompts"); onToggled: (v) => WidgetConfig.setUiOpt("hudShowPrompts", v); onResetClicked: WidgetConfig.resetUiOption("hudShowPrompts") }
+                        FieldHeader { label: "HUD TEXT COLOUR"; modified: WidgetConfig.isUiModified("hudTextColor"); onResetClicked: WidgetConfig.resetUiOption("hudTextColor") }
+                        OWColorPicker { width: parent.width; allowBlank: false; defaultValue: "#F2EBDD"; value: WidgetConfig.hudTextColor; onEdited: (v) => WidgetConfig.setUiOpt("hudTextColor", v) }
+                        FieldHeader { label: "HUD FONT"; modified: WidgetConfig.isUiModified("hudFont"); onResetClicked: WidgetConfig.resetUiOption("hudFont") }
+                        OWFontPicker { width: parent.width; allowBlank: false; defaultValue: "monospace"; value: WidgetConfig.hudFont; onEdited: (v) => WidgetConfig.setUiOpt("hudFont", v) }
+                    }
+
+                    // ---- 2. LOOP / SPEED PANEL ----
+                    OptAccordion {
+                        optKey: "loop"; title: "Loop / speed panel"
+                        subtitle: "Bottom-right box  ·  Key: " + (Keybinds.pretty(Keybinds.seq("hud")) || "NONE")
+                        hasSwitch: true; switchOn: WidgetConfig.showLoopPanel
+                        onSwitchToggled: (v) => WidgetConfig.setShowLoopPanel(v)
+
+                        FieldHeader { label: "OPACITY"; modified: WidgetConfig.isUiModified("loopPanelOpacity"); onResetClicked: WidgetConfig.resetUiOption("loopPanelOpacity") }
+                        OWSlider { width: parent.width; from: 0.2; to: 1.0; step: 0.05; value: WidgetConfig.loopPanelOpacity; text: Math.round(WidgetConfig.loopPanelOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setLoopPanelOpacity(v) }
+                        FieldHeader { label: "SCALE"; modified: WidgetConfig.isUiModified("loopPanelScale"); onResetClicked: WidgetConfig.resetUiOption("loopPanelScale") }
+                        OWSlider { width: parent.width; from: 0.6; to: 1.5; step: 0.05; value: WidgetConfig.loopPanelScale; text: WidgetConfig.loopPanelScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setLoopPanelScale(v) }
+                    }
+
+                    // ---- 3. ORBIT LINES ----
+                    OptAccordion {
+                        optKey: "orbits"; title: "Orbit lines"; subtitle: "Elliptical planet paths in the background"
+                        hasSwitch: true; switchOn: WidgetConfig.showOrbits
+                        onSwitchToggled: (v) => WidgetConfig.setShowOrbits(v)
+
+                        FieldHeader { label: "OPACITY"; modified: WidgetConfig.isUiModified("orbitOpacity"); onResetClicked: WidgetConfig.resetUiOption("orbitOpacity") }
+                        OWSlider { width: parent.width; from: 0.1; to: 1.0; step: 0.05; value: WidgetConfig.orbitOpacity; text: Math.round(WidgetConfig.orbitOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setOrbitOpacity(v) }
+                        FieldHeader { label: "LINE WIDTH"; modified: WidgetConfig.isUiModified("orbitWidth"); onResetClicked: WidgetConfig.resetUiOption("orbitWidth") }
+                        OWSlider { width: parent.width; from: 0.5; to: 4.0; step: 0.1; value: WidgetConfig.orbitWidth; text: WidgetConfig.orbitWidth.toFixed(1) + " px"; onMoved: (v) => WidgetConfig.setOrbitWidth(v) }
+                    }
+
+                    // ---- 4. PLANET LABELS ----
+                    OptAccordion {
+                        optKey: "labels"; title: "Planet labels"; subtitle: "Planet names and lock-on distances"
+                        hasSwitch: true; switchOn: WidgetConfig.showLabels
+                        onSwitchToggled: (v) => WidgetConfig.setShowLabels(v)
+
+                        FieldHeader { label: "TEXT SIZE"; modified: WidgetConfig.isUiModified("labelSize"); onResetClicked: WidgetConfig.resetUiOption("labelSize") }
+                        OWSlider { width: parent.width; from: 0.6; to: 2.0; step: 0.05; value: WidgetConfig.labelSize; text: WidgetConfig.labelSize.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setLabelSize(v) }
+                        FieldHeader { label: "MAX DISTANCE"; modified: WidgetConfig.isUiModified("labelDist"); onResetClicked: WidgetConfig.resetUiOption("labelDist") }
+                        OWSlider { width: parent.width; from: 500; to: 6000; step: 100; value: WidgetConfig.labelDist; text: Math.round(WidgetConfig.labelDist) + " m"; onMoved: (v) => WidgetConfig.setLabelDist(v) }
+                    }
+
+                    // ---- 5. TARGET / LOCK RETICLES ----
+                    OptAccordion {
+                        optKey: "reticles"; title: "Target / lock reticles"; subtitle: "Hover and lock-on brackets around planets"
+                        hasSwitch: true; switchOn: WidgetConfig.showReticles
+                        onSwitchToggled: (v) => WidgetConfig.setShowReticles(v)
+
+                        FieldHeader { label: "OPACITY"; modified: WidgetConfig.isUiModified("reticleOpacity"); onResetClicked: WidgetConfig.resetUiOption("reticleOpacity") }
+                        OWSlider { width: parent.width; from: 0.1; to: 1.0; step: 0.05; value: WidgetConfig.reticleOpacity; text: Math.round(WidgetConfig.reticleOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setReticleOpacity(v) }
+                        FieldHeader { label: "STROKE WIDTH"; modified: WidgetConfig.isUiModified("reticleWidth"); onResetClicked: WidgetConfig.resetUiOption("reticleWidth") }
+                        OWSlider { width: parent.width; from: 0.5; to: 3.0; step: 0.1; value: WidgetConfig.reticleWidth; text: WidgetConfig.reticleWidth.toFixed(1) + "×"; onMoved: (v) => WidgetConfig.setReticleWidth(v) }
+                    }
+
+                    // ---- 6. RENDERING & PERFORMANCE ----
+                    OptAccordion {
+                        optKey: "render"; title: "Rendering & performance"; subtitle: "Bake resolution, idle FPS cap & distance shrink"
+
+                        OWToggleRow { label: "Shrink widgets when far away"; on: WidgetConfig.shrinkFar; modified: WidgetConfig.isUiModified("shrinkFar"); onToggled: (v) => WidgetConfig.setShrinkFar(v); onResetClicked: WidgetConfig.resetUiOption("shrinkFar") }
+                        FieldHeader { label: "PLANET TEXTURE RESOLUTION"; modified: WidgetConfig.isUiModified("bakeW"); onResetClicked: WidgetConfig.resetUiOption("bakeW") }
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: [512, 1024, 2048]
+                                delegate: OWButton {
+                                    required property int modelData
+                                    label: modelData + " px"; pad: 10
+                                    active: WidgetConfig.bakeW === modelData
+                                    onClicked: WidgetConfig.setBakeW(modelData)
+                                }
+                            }
+                        }
+                        FieldHeader { label: "ACTIVE FPS CAP"; modified: WidgetConfig.isUiModified("fpsActive"); onResetClicked: WidgetConfig.resetUiOption("fpsActive") }
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: [30, 60, 90, 120, 0]
+                                delegate: OWButton {
+                                    required property int modelData
+                                    label: modelData === 0 ? "OFF" : (modelData + " fps"); pad: 8
+                                    active: WidgetConfig.fpsActive === modelData
+                                    onClicked: WidgetConfig.setUiOpt("fpsActive", modelData)
+                                }
+                            }
+                        }
+                        FieldHeader { label: "IDLE FPS CAP"; modified: WidgetConfig.isUiModified("fpsIdle"); onResetClicked: WidgetConfig.resetUiOption("fpsIdle") }
+                        Row {
+                            spacing: 6
+                            Repeater {
+                                model: [15, 30, 60, 0]
+                                delegate: OWButton {
+                                    required property int modelData
+                                    label: modelData === 0 ? "OFF" : (modelData + " fps"); pad: 10
+                                    active: WidgetConfig.fpsIdle === modelData
+                                    onClicked: WidgetConfig.setFpsIdle(modelData)
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- 6b. FLIGHT & CAMERA ----
+                    OptAccordion {
+                        optKey: "flight"; title: "Flight & camera"; subtitle: "Space drift, cruise speed, orbit & look sensitivity"
+
+                        OWToggleRow { label: "Space drift (6-DOF coasting)"; on: WidgetConfig.spaceDrift; modified: WidgetConfig.isUiModified("spaceDrift"); onToggled: (v) => WidgetConfig.setUiOpt("spaceDrift", v); onResetClicked: WidgetConfig.resetUiOption("spaceDrift") }
+                        FieldHeader { label: "DRIFT CRUISE SPEED"; modified: WidgetConfig.isUiModified("driftCruise"); onResetClicked: WidgetConfig.resetUiOption("driftCruise") }
+                        OWSlider { width: parent.width; from: 20; to: 250; step: 5; value: WidgetConfig.driftCruise; text: Math.round(WidgetConfig.driftCruise) + " u/s"; onMoved: (v) => WidgetConfig.setUiOpt("driftCruise", v) }
+                        FieldHeader { label: "LOCK-ON ORBIT DISTANCE"; modified: WidgetConfig.isUiModified("lockOrbitK"); onResetClicked: WidgetConfig.resetUiOption("lockOrbitK") }
+                        OWSlider { width: parent.width; from: 3.0; to: 12.0; step: 0.5; value: WidgetConfig.lockOrbitK; text: WidgetConfig.lockOrbitK.toFixed(1) + " radii"; onMoved: (v) => WidgetConfig.setUiOpt("lockOrbitK", v) }
+                        FieldHeader { label: "MOUSE LOOK SENSITIVITY"; modified: WidgetConfig.isUiModified("lookSens"); onResetClicked: WidgetConfig.resetUiOption("lookSens") }
+                        OWSlider { width: parent.width; from: 0.3; to: 2.5; step: 0.05; value: WidgetConfig.lookSens; text: WidgetConfig.lookSens.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("lookSens", v) }
+                        FieldHeader { label: "DEFAULT LOOP SPEED"; modified: WidgetConfig.isUiModified("defaultTimeScale"); onResetClicked: WidgetConfig.resetUiOption("defaultTimeScale") }
+                        OWSlider { width: parent.width; from: 1; to: 50; step: 1; value: WidgetConfig.defaultTimeScale; text: Math.round(WidgetConfig.defaultTimeScale) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("defaultTimeScale", v) }
+                    }
+
+                    // ---- 7. WIDGETS (GLOBAL DEFAULTS + PINNING) ----
+                    OptAccordion {
+                        optKey: "wglobal"; title: "Widgets (global defaults)"; subtitle: "Default opacity, radius, accent & pin dimming"
+
+                        FieldHeader { label: "GLOBAL OPACITY"; modified: WidgetConfig.isUiModified("widgetOpacity"); onResetClicked: WidgetConfig.resetUiOption("widgetOpacity") }
+                        OWSlider { width: parent.width; from: 0.2; to: 1.0; step: 0.05; value: WidgetConfig.widgetOpacity; text: Math.round(WidgetConfig.widgetOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setWidgetOpacity(v) }
+                        FieldHeader { label: "DEFAULT CORNER RADIUS"; modified: WidgetConfig.isUiModified("widgetRadius"); onResetClicked: WidgetConfig.resetUiOption("widgetRadius") }
+                        OWSlider { width: parent.width; from: 0; to: 24; step: 1; value: WidgetConfig.widgetRadius; text: Math.round(WidgetConfig.widgetRadius) + " px"; onMoved: (v) => WidgetConfig.setWidgetRadius(v) }
+                        FieldHeader { label: "DEFAULT ACCENT COLOUR"; modified: WidgetConfig.isUiModified("widgetAccent"); onResetClicked: WidgetConfig.resetUiOption("widgetAccent") }
+                        OWColorPicker { width: parent.width; allowBlank: false; defaultValue: "#D4AF37"; value: WidgetConfig.widgetAccent; onEdited: (v) => WidgetConfig.setWidgetAccent(v) }
+                        OWToggleRow { label: "Show corner brackets"; on: WidgetConfig.widgetBrackets; modified: WidgetConfig.isUiModified("widgetBrackets"); onToggled: (v) => WidgetConfig.setWidgetBrackets(v); onResetClicked: WidgetConfig.resetUiOption("widgetBrackets") }
+                        OWToggleRow { label: "Pause orbit on hover"; on: WidgetConfig.widgetHoldOnHover; modified: WidgetConfig.isUiModified("widgetHoldOnHover"); onToggled: (v) => WidgetConfig.setWidgetHoldOnHover(v); onResetClicked: WidgetConfig.resetUiOption("widgetHoldOnHover") }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        FieldHeader { label: "PINNED SCALE"; modified: WidgetConfig.isUiModified("pinScale"); onResetClicked: WidgetConfig.resetUiOption("pinScale") }
+                        OWSlider { width: parent.width; from: 1.0; to: 2.0; step: 0.05; value: WidgetConfig.pinScale; text: WidgetConfig.pinScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("pinScale", v) }
+                        OWToggleRow { label: "Dim unpinned widgets"; on: WidgetConfig.pinDimEnabled; modified: WidgetConfig.isUiModified("pinDimEnabled"); onToggled: (v) => WidgetConfig.setUiOpt("pinDimEnabled", v); onResetClicked: WidgetConfig.resetUiOption("pinDimEnabled") }
+                        FieldHeader { visible: WidgetConfig.pinDimEnabled; label: "DIM SCOPE"; modified: WidgetConfig.isUiModified("pinDimScope"); onResetClicked: WidgetConfig.resetUiOption("pinDimScope") }
+                        Row {
+                            visible: WidgetConfig.pinDimEnabled; spacing: 6
+                            OWButton { label: "HOST PLANET"; active: WidgetConfig.pinDimScope === "planet"; onClicked: WidgetConfig.setUiOpt("pinDimScope", "planet") }
+                            OWButton { label: "EVERYWHERE"; active: WidgetConfig.pinDimScope === "everywhere"; onClicked: WidgetConfig.setUiOpt("pinDimScope", "everywhere") }
+                        }
+                        FieldHeader { visible: WidgetConfig.pinDimEnabled; label: "UNPINNED DIM OPACITY"; modified: WidgetConfig.isUiModified("pinDimOpacity"); onResetClicked: WidgetConfig.resetUiOption("pinDimOpacity") }
+                        OWSlider { visible: WidgetConfig.pinDimEnabled; width: parent.width; from: 0.05; to: 1.0; step: 0.05; value: WidgetConfig.pinDimOpacity; text: Math.round(WidgetConfig.pinDimOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setUiOpt("pinDimOpacity", v) }
+                        FieldHeader { label: "PIN OUTLINE COLOUR"; modified: WidgetConfig.isUiModified("pinOutlineColor"); onResetClicked: WidgetConfig.resetUiOption("pinOutlineColor") }
+                        OWColorPicker { width: parent.width; allowBlank: false; defaultValue: "#D4AF37"; value: WidgetConfig.pinOutlineColor; onEdited: (v) => WidgetConfig.setUiOpt("pinOutlineColor", v) }
+                    }
+
+                    // ---- 8. WIDGET PACK THEMES ----
+                    OptAccordion {
+                        optKey: "packthemes"; title: "Widget pack themes"; subtitle: "Global Glyph, Lucid & Serpantinum colours"
+
+                        Text { text: "GLYPH  (blank = default)"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        FieldHeader { label: "CARD FILL"; modified: WidgetConfig.isUiModified("glyphBg"); onResetClicked: WidgetConfig.resetUiOption("glyphBg") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.glyphBg; onEdited: (v) => WidgetConfig.setPackTheme("glyphBg", v) }
+                        FieldHeader { label: "LIT DOTS / TEXT"; modified: WidgetConfig.isUiModified("glyphFg"); onResetClicked: WidgetConfig.resetUiOption("glyphFg") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.glyphFg; onEdited: (v) => WidgetConfig.setPackTheme("glyphFg", v) }
+                        FieldHeader { label: "LIVE ACCENT (DEFAULT RED)"; modified: WidgetConfig.isUiModified("glyphAccent"); onResetClicked: WidgetConfig.resetUiOption("glyphAccent") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.glyphAccent; onEdited: (v) => WidgetConfig.setPackTheme("glyphAccent", v) }
+                        FieldHeader { label: "UNLIT DOTS"; modified: WidgetConfig.isUiModified("glyphOff"); onResetClicked: WidgetConfig.resetUiOption("glyphOff") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.glyphOff; onEdited: (v) => WidgetConfig.setPackTheme("glyphOff", v) }
+                        FieldHeader { label: "FONT"; modified: WidgetConfig.isUiModified("glyphFont"); onResetClicked: WidgetConfig.resetUiOption("glyphFont") }
+                        OWFontPicker { width: parent.width; value: WidgetConfig.glyphFont; onEdited: (v) => WidgetConfig.setPackTheme("glyphFont", v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        Text { text: "LUCID  (blank = default)"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        FieldHeader { label: "SURFACE"; modified: WidgetConfig.isUiModified("lucidBg"); onResetClicked: WidgetConfig.resetUiOption("lucidBg") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.lucidBg; onEdited: (v) => WidgetConfig.setPackTheme("lucidBg", v) }
+                        FieldHeader { label: "TEXT"; modified: WidgetConfig.isUiModified("lucidText"); onResetClicked: WidgetConfig.resetUiOption("lucidText") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.lucidText; onEdited: (v) => WidgetConfig.setPackTheme("lucidText", v) }
+                        FieldHeader { label: "ACCENT"; modified: WidgetConfig.isUiModified("lucidAccent"); onResetClicked: WidgetConfig.resetUiOption("lucidAccent") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.lucidAccent; onEdited: (v) => WidgetConfig.setPackTheme("lucidAccent", v) }
+                        FieldHeader { label: "FONT"; modified: WidgetConfig.isUiModified("lucidFont"); onResetClicked: WidgetConfig.resetUiOption("lucidFont") }
+                        OWFontPicker { width: parent.width; value: WidgetConfig.lucidFont; onEdited: (v) => WidgetConfig.setPackTheme("lucidFont", v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        Text { text: "SERPANTINUM / ANSERIN  (blank = default)"; color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2 }
+                        FieldHeader { label: "SURFACE"; modified: WidgetConfig.isUiModified("serpSurface"); onResetClicked: WidgetConfig.resetUiOption("serpSurface") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.serpSurface; onEdited: (v) => WidgetConfig.setPackTheme("serpSurface", v) }
+                        FieldHeader { label: "TEXT"; modified: WidgetConfig.isUiModified("serpText"); onResetClicked: WidgetConfig.resetUiOption("serpText") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.serpText; onEdited: (v) => WidgetConfig.setPackTheme("serpText", v) }
+                        FieldHeader { label: "ACCENT"; modified: WidgetConfig.isUiModified("serpAccent"); onResetClicked: WidgetConfig.resetUiOption("serpAccent") }
+                        OWColorPicker { width: parent.width; value: WidgetConfig.serpAccent; onEdited: (v) => WidgetConfig.setPackTheme("serpAccent", v) }
+                        FieldHeader { label: "CARD OPACITY"; modified: WidgetConfig.isUiModified("serpOpacity"); onResetClicked: WidgetConfig.resetUiOption("serpOpacity") }
+                        OWSlider { width: parent.width; from: 0.1; to: 1.0; step: 0.05; value: WidgetConfig.serpOpacity; text: Math.round(WidgetConfig.serpOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setPackTheme("serpOpacity", v) }
+                        FieldHeader { label: "CORNER RADIUS"; modified: WidgetConfig.isUiModified("serpRadius"); onResetClicked: WidgetConfig.resetUiOption("serpRadius") }
+                        OWSlider { width: parent.width; from: 0; to: 28; step: 1; value: WidgetConfig.serpRadius; text: Math.round(WidgetConfig.serpRadius) + " px"; onMoved: (v) => WidgetConfig.setPackTheme("serpRadius", v) }
+                        FieldHeader { label: "FONT"; modified: WidgetConfig.isUiModified("serpFont"); onResetClicked: WidgetConfig.resetUiOption("serpFont") }
+                        OWFontPicker { width: parent.width; value: WidgetConfig.serpFont; onEdited: (v) => WidgetConfig.setPackTheme("serpFont", v) }
+
+                        OWButton { label: "RESET PACK THEMES"; onClicked: WidgetConfig.resetPackThemes() }
+                    }
+
+                    // ---- 9. LAYOUT PRESETS (save / load / import / export) ----
+                    OptAccordion {
+                        optKey: "presets"; title: "Layout presets"; subtitle: "Save, switch, import & export desktop setups"
+
+                        Row {
+                            width: parent.width; spacing: 6
+                            Rectangle {
+                                width: parent.width - savePBtn.width - 6; height: 28; radius: 7
+                                color: "#0C101C"; border.width: 1; border.color: presetNameIn.activeFocus ? root.cGold : root.cLine
+                                Text {
+                                    x: 10; anchors.verticalCenter: parent.verticalCenter
+                                    visible: presetNameIn.text === "" && !presetNameIn.activeFocus
+                                    text: "new preset name..."; color: root.cOff; font.family: root.mono; font.pixelSize: 11
+                                }
+                                TextInput {
+                                    id: presetNameIn
+                                    anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 8
+                                    verticalAlignment: TextInput.AlignVCenter; clip: true
+                                    color: root.cCream; font.family: root.mono; font.pixelSize: 11
+                                    onAccepted: {
+                                        if (WidgetConfig.savePreset(text)) { root.presetMsg = "Saved '" + text.trim() + "'"; text = ""; focus = false; }
+                                    }
+                                }
+                            }
+                            OWButton {
+                                id: savePBtn; implicitHeight: 28; pad: 10; label: "SAVE"; active: true
+                                onClicked: {
+                                    if (WidgetConfig.savePreset(presetNameIn.text)) { root.presetMsg = "Saved '" + presetNameIn.text.trim() + "'"; presetNameIn.text = ""; }
+                                    else root.presetMsg = "Enter a preset name first.";
+                                }
+                            }
+                        }
+
+                        Row {
+                            spacing: 6
+                            OWButton { label: "IMPORT JSON"; pad: 9; onClicked: root.presetImportRequested() }
+                            OWButton { label: "EXPORT CURRENT"; pad: 9; onClicked: root.presetExportRequested("outerwilds-layout", WidgetConfig.exportPresetJson("")) }
+                        }
+
+                        Text {
+                            visible: root.presetMsg !== ""
+                            width: parent.width; wrapMode: Text.Wrap
+                            text: root.presetMsg; color: root.cGold; font.family: root.mono; font.pixelSize: 10
+                        }
+
+                        Column {
+                            width: parent.width; spacing: 4
+                            readonly property var names: WidgetConfig.presetNames()
+                            Text {
+                                visible: parent.names.length === 0
+                                text: "No saved presets yet."
+                                color: root.cOff; font.family: root.mono; font.pixelSize: 10
+                            }
+                            Repeater {
+                                model: parent.names
+                                delegate: Rectangle {
+                                    required property string modelData
+                                    width: parent.width; height: 32; radius: 6
+                                    color: "#0E1424"; border.width: 1; border.color: root.cLine
+                                    Text {
+                                        x: 10; width: parent.width - 134; anchors.verticalCenter: parent.verticalCenter
+                                        elide: Text.ElideRight; text: modelData
+                                        color: root.cCream; font.family: root.mono; font.pixelSize: 11
+                                    }
+                                    Row {
+                                        anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter; spacing: 4
+                                        OWButton { implicitHeight: 22; pad: 7; label: "LOAD"; onClicked: { WidgetConfig.loadPreset(modelData); root.presetMsg = "Loaded '" + modelData + "'"; } }
+                                        OWButton { implicitHeight: 22; pad: 7; label: "EXP"; onClicked: root.presetExportRequested(modelData, WidgetConfig.exportPresetJson(modelData)) }
+                                        OWButton { implicitHeight: 22; pad: 6; label: "✕"; danger: true; onClicked: { WidgetConfig.deletePreset(modelData); root.presetMsg = "Deleted '" + modelData + "'"; } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- 10. RESET ----
+                    Rectangle {
+                        width: parent.width; height: 92; radius: 8; color: "#0D1322"; border.width: 1; border.color: root.cLine
+                        Column {
+                            x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 24; spacing: 6
+                            Text { text: "Reset"; color: root.cCream; font.family: root.mono; font.pixelSize: 12 }
+                            Text {
+                                width: parent.width; wrapMode: Text.Wrap
+                                text: "Puts every widget back where it started and keeps your keys."
+                                color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                            }
+                            OWButton {
+                                label: root.confirmReset ? "SURE? CLICK AGAIN" : "RESET ALL WIDGETS"
+                                danger: root.confirmReset
+                                onClicked: {
+                                    if (root.confirmReset) { WidgetConfig.resetAll(); root.expandedId = ""; root.confirmReset = false; }
+                                    else root.confirmReset = true;
+                                }
+                            }
+                        }
+                        Timer { interval: 3000; running: root.confirmReset; onTriggered: root.confirmReset = false }
+                    }
+                }
+            }
+            OWScroll { target: optFlick }
+        }
+
+        // ---------------- widget picker overlay (add / swap / restore) ----------------
+        Rectangle {
+            id: picker
+            visible: root.picking
+            anchors.fill: parent
+            radius: mainPanel.radius
+            color: "#070911"
+            z: 10
+
+            MouseArea { anchors.fill: parent; hoverEnabled: true; onWheel: (w) => { w.accepted = true; } }
+
+            Text {
+                x: 18; y: 18
+                text: root.pickMode === "add" ? "ADD A WIDGET" : "CHANGE WIDGET TYPE"
+                color: root.cCream; font.family: root.mono; font.bold: true; font.pixelSize: 14; font.letterSpacing: 3
+            }
+            OWButton { x: parent.width - width - 18; y: 14; label: "CANCEL"; onClicked: root.picking = false }
+            Text {
+                x: 18; y: 44; width: parent.width - 36; wrapMode: Text.Wrap
+                text: root.pickMode === "add"
+                      ? "Goes on " + WidgetConfig.planetName(root.lastHost) + (root.pickFromFocus ? " (focused planet)" : "") + "; move it afterwards."
+                      : "Keeps this widget's planet, orbit and size."
+                color: root.cDim; font.family: root.mono; font.pixelSize: 10
+            }
+            SearchBox {
+                x: 18; y: 78; width: parent.width - 36
+                placeholder: "search"
+                text: root.pickQuery; onTextChanged: root.pickQuery = text
+            }
+
+            Flickable {
+                id: pickFlick
+                x: 18; y: 116; width: parent.width - 46; height: parent.height - 128
+                contentHeight: pickCol.height + 12; clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                WheelHandler {
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                    onWheel: (e) => {
+                        const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
+                        pickFlick.contentY = Math.max(0, Math.min(Math.max(0, pickFlick.contentHeight - pickFlick.height), pickFlick.contentY - dy));
+                    }
+                }
+
+                Column {
+                    id: pickCol
+                    width: parent.width - 8
+                    Repeater {
+                        model: root.pickModel
+                        delegate: Item {
+                            id: pe
+                            required property var modelData
+                            width: pickCol.width
+                            height: modelData.kind === "group" ? 30 : 28
+
+                            Text {
+                                visible: pe.modelData.kind === "group"
+                                anchors.bottom: parent.bottom; anchors.bottomMargin: 4
+                                text: pe.modelData.text || ""; color: root.cGold
+                                font.family: root.mono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 2
+                            }
+                            Rectangle {
+                                visible: pe.modelData.kind !== "group"
+                                width: parent.width; height: 30; radius: 7
+                                color: pma.containsMouse ? "#1CD4AF37" : "transparent"
+                                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                Text {
+                                    x: 8; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 16; elide: Text.ElideRight
+                                    text: pe.modelData.kind === "restore"
+                                          ? pe.modelData.name + "   ·   " + WidgetConfig.planetName(pe.modelData.planet)
+                                          : (pe.modelData.name || "")
+                                    color: pe.modelData.kind === "restore" ? root.cGold : root.cCream
+                                    font.family: root.mono; font.pixelSize: 12
+                                }
+                                MouseArea {
+                                    id: pma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (pe.modelData.kind === "restore") root.pickRestore(pe.modelData.id);
+                                        else if (pe.modelData.kind === "item") root.pickChosen(pe.modelData.source);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            OWScroll { target: pickFlick }
+        }
+    } // end mainPanel
+
+    // =====================================================================
+    //  DETACHED POP-OUT WIDGET INSPECTOR (left of Control Centre)
+    // =====================================================================
+    Rectangle {
+        id: inspectorPanel
+        z: 1
+        property real slide: (root.inspectorOpen && WidgetConfig.panelOpen) ? 1.0 : 0.0
+        Behavior on slide { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        visible: slide > 0.01
+        opacity: slide
+        enabled: root.inspectorOpen && WidgetConfig.panelOpen
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: mainPanel.left
+        anchors.topMargin: 12
+        anchors.bottomMargin: 12
+        anchors.rightMargin: 10 - (1.0 - slide) * 48
+        width: 380
+        radius: 12
+        clip: true
+        color: "#F5070911"
+        border.width: 1
+        border.color: "#66D4AF37"
+
+        OWBrackets { }
+
+        property var cachedEntry: null
+        Connections {
+            target: root
+            function onInspEntryChanged() { if (root.inspEntry) inspectorPanel.cachedEntry = root.inspEntry; }
+        }
+        readonly property var d: root.inspEntry || cachedEntry
+        readonly property string wid: root.expandedId
+        readonly property bool modified: d !== null && (WidgetConfig.overrides[wid] !== undefined || d._extra)
+        readonly property string keyAction: d ? Keybinds.forWidget(d.source) : ""
+        readonly property var schema: d ? WidgetConfig.settingsSchema(d.source) : []
+
+        Rectangle {
+            anchors.fill: parent; radius: parent.radius; z: -1
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#F50E1324" }
+                GradientStop { position: 0.45; color: "#F5070911" }
+                GradientStop { position: 1.0; color: "#F504050B" }
+            }
+        }
 
         Item {
-            x: 18
-            y: parent.height - 40
-            width: parent.width - 36
-            height: 28
-            OWButton { label: "RESET ALL KEYS"; onClicked: { WidgetConfig.resetKeys(); root.keyMsg = ""; root.capturing = ""; } }
-        }
-    }
-
-    // =====================================================================
-    //  OPTIONS TAB (collapsible dropdown sections)
-    // =====================================================================
-    Item {
-        id: optionsTab
-        visible: root.tab === "options"
-        x: 0; y: 96
-        width: parent.width
-        height: parent.height - 96
-
-        Flickable {
-            id: optFlick
-            x: 18; y: 4
-            width: parent.width - 46
-            height: parent.height - 12
-            contentWidth: width
-            contentHeight: optCol.height + 16
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-
-            WheelHandler {
-                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-                onWheel: (e) => {
-                    const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                    const f = optFlick;
-                    f.contentY = Math.max(0, Math.min(Math.max(0, f.contentHeight - f.height), f.contentY - dy));
-                }
+            id: inspHead
+            x: 16; y: 14; width: parent.width - 32; height: 38
+            Text {
+                width: parent.width - 72; elide: Text.ElideRight
+                text: inspectorPanel.d ? WidgetConfig.widgetName(inspectorPanel.d).toUpperCase() : ""
+                color: root.cCream; font.family: root.mono; font.bold: true; font.pixelSize: 13; font.letterSpacing: 2
             }
-
-            Column {
-                id: optCol
-                width: optFlick.width - 10
-                spacing: 6
-
-                // ---- 1. SATELLITE HUD ----
-                Column {
-                    width: parent.width; spacing: 4
-                    readonly property bool open: root.optOpen["hud"] === true
-                    Rectangle {
-                        width: parent.width; height: 48; radius: 8
-                        color: parent.open ? "#20D4AF37" : (hHud.hovered ? "#15D4AF37" : "#0D1322")
-                        border.width: 1; border.color: parent.open ? "#55D4AF37" : root.cLine
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                        HoverHandler { id: hHud }
-                        MouseArea { anchors.fill: parent; anchors.rightMargin: 46; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleOpt("hud") }
-                        Column {
-                            x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 66; spacing: 2
-                            Text { text: (parent.parent.parent.open ? "▾  " : "▸  ") + "Satellite HUD"; color: root.cCream; font.family: root.mono; font.pixelSize: 12; font.bold: parent.parent.parent.open }
-                            Text { text: "Gauges, audio globe & thrust indicator"; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
-                        }
-                        OWSwitch { anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; on: WidgetConfig.showHud; onToggled: (v) => WidgetConfig.setShowHud(v) }
-                    }
-                    Rectangle {
-                        visible: parent.open; width: parent.width; height: hudBody.height + 20; radius: 8; color: "#0B101D"; border.width: 1; border.color: "#2AD4AF37"
-                        Column {
-                            id: hudBody; x: 12; y: 10; width: parent.width - 24; spacing: 6
-                            FieldLabel { text: "OPACITY" }
-                            OWSlider { width: parent.width; from: 0.1; to: 1.0; step: 0.05; value: WidgetConfig.hudOpacity; text: Math.round(WidgetConfig.hudOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setHudOpacity(v) }
-                            FieldLabel { text: "SCALE" }
-                            OWSlider { width: parent.width; from: 0.5; to: 1.5; step: 0.05; value: WidgetConfig.hudScale; text: WidgetConfig.hudScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setHudScale(v) }
-                        }
-                    }
-                }
-
-                // ---- 2. LOOP / SPEED PANEL ----
-                Column {
-                    width: parent.width; spacing: 4
-                    readonly property bool open: root.optOpen["loop"] === true
-                    Rectangle {
-                        width: parent.width; height: 48; radius: 8
-                        color: parent.open ? "#20D4AF37" : (hLoop.hovered ? "#15D4AF37" : "#0D1322")
-                        border.width: 1; border.color: parent.open ? "#55D4AF37" : root.cLine
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                        HoverHandler { id: hLoop }
-                        MouseArea { anchors.fill: parent; anchors.rightMargin: 46; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleOpt("loop") }
-                        Column {
-                            x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 66; spacing: 2
-                            Text { text: (parent.parent.parent.open ? "▾  " : "▸  ") + "Loop / speed panel"; color: root.cCream; font.family: root.mono; font.pixelSize: 12; font.bold: parent.parent.parent.open }
-                            Text { text: "Bottom-right box  ·  Key: " + (Keybinds.pretty(Keybinds.seq("hud")) || "NONE"); color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
-                        }
-                        OWSwitch { anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; on: WidgetConfig.showLoopPanel; onToggled: (v) => WidgetConfig.setShowLoopPanel(v) }
-                    }
-                    Rectangle {
-                        visible: parent.open; width: parent.width; height: loopBody.height + 20; radius: 8; color: "#0B101D"; border.width: 1; border.color: "#2AD4AF37"
-                        Column {
-                            id: loopBody; x: 12; y: 10; width: parent.width - 24; spacing: 6
-                            FieldLabel { text: "OPACITY" }
-                            OWSlider { width: parent.width; from: 0.2; to: 1.0; step: 0.05; value: WidgetConfig.loopPanelOpacity; text: Math.round(WidgetConfig.loopPanelOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setLoopPanelOpacity(v) }
-                            FieldLabel { text: "SCALE" }
-                            OWSlider { width: parent.width; from: 0.6; to: 1.5; step: 0.05; value: WidgetConfig.loopPanelScale; text: WidgetConfig.loopPanelScale.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setLoopPanelScale(v) }
-                        }
-                    }
-                }
-
-                // ---- 3. ORBIT LINES ----
-                Column {
-                    width: parent.width; spacing: 4
-                    readonly property bool open: root.optOpen["orbits"] === true
-                    Rectangle {
-                        width: parent.width; height: 48; radius: 8
-                        color: parent.open ? "#20D4AF37" : (hOrb.hovered ? "#15D4AF37" : "#0D1322")
-                        border.width: 1; border.color: parent.open ? "#55D4AF37" : root.cLine
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                        HoverHandler { id: hOrb }
-                        MouseArea { anchors.fill: parent; anchors.rightMargin: 46; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleOpt("orbits") }
-                        Column {
-                            x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 66; spacing: 2
-                            Text { text: (parent.parent.parent.open ? "▾  " : "▸  ") + "Orbit lines"; color: root.cCream; font.family: root.mono; font.pixelSize: 12; font.bold: parent.parent.parent.open }
-                            Text { text: "Elliptical planet paths in the background"; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
-                        }
-                        OWSwitch { anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; on: WidgetConfig.showOrbits; onToggled: (v) => WidgetConfig.setShowOrbits(v) }
-                    }
-                    Rectangle {
-                        visible: parent.open; width: parent.width; height: orbBody.height + 20; radius: 8; color: "#0B101D"; border.width: 1; border.color: "#2AD4AF37"
-                        Column {
-                            id: orbBody; x: 12; y: 10; width: parent.width - 24; spacing: 6
-                            FieldLabel { text: "OPACITY" }
-                            OWSlider { width: parent.width; from: 0.1; to: 1.0; step: 0.05; value: WidgetConfig.orbitOpacity; text: Math.round(WidgetConfig.orbitOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setOrbitOpacity(v) }
-                            FieldLabel { text: "LINE WIDTH" }
-                            OWSlider { width: parent.width; from: 0.5; to: 4.0; step: 0.1; value: WidgetConfig.orbitWidth; text: WidgetConfig.orbitWidth.toFixed(1) + " px"; onMoved: (v) => WidgetConfig.setOrbitWidth(v) }
-                        }
-                    }
-                }
-
-                // ---- 4. PLANET LABELS ----
-                Column {
-                    width: parent.width; spacing: 4
-                    readonly property bool open: root.optOpen["labels"] === true
-                    Rectangle {
-                        width: parent.width; height: 48; radius: 8
-                        color: parent.open ? "#20D4AF37" : (hLbl.hovered ? "#15D4AF37" : "#0D1322")
-                        border.width: 1; border.color: parent.open ? "#55D4AF37" : root.cLine
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                        HoverHandler { id: hLbl }
-                        MouseArea { anchors.fill: parent; anchors.rightMargin: 46; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleOpt("labels") }
-                        Column {
-                            x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 66; spacing: 2
-                            Text { text: (parent.parent.parent.open ? "▾  " : "▸  ") + "Planet labels"; color: root.cCream; font.family: root.mono; font.pixelSize: 12; font.bold: parent.parent.parent.open }
-                            Text { text: "Planet names and lock-on distances"; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
-                        }
-                        OWSwitch { anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; on: WidgetConfig.showLabels; onToggled: (v) => WidgetConfig.setShowLabels(v) }
-                    }
-                    Rectangle {
-                        visible: parent.open; width: parent.width; height: lblBody.height + 20; radius: 8; color: "#0B101D"; border.width: 1; border.color: "#2AD4AF37"
-                        Column {
-                            id: lblBody; x: 12; y: 10; width: parent.width - 24; spacing: 6
-                            FieldLabel { text: "TEXT SIZE" }
-                            OWSlider { width: parent.width; from: 0.6; to: 2.0; step: 0.05; value: WidgetConfig.labelSize; text: WidgetConfig.labelSize.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setLabelSize(v) }
-                            FieldLabel { text: "MAX DISTANCE" }
-                            OWSlider { width: parent.width; from: 500; to: 6000; step: 100; value: WidgetConfig.labelDist; text: Math.round(WidgetConfig.labelDist) + " m"; onMoved: (v) => WidgetConfig.setLabelDist(v) }
-                        }
-                    }
-                }
-
-                // ---- 5. TARGET / LOCK RETICLES ----
-                Column {
-                    width: parent.width; spacing: 4
-                    readonly property bool open: root.optOpen["reticles"] === true
-                    Rectangle {
-                        width: parent.width; height: 48; radius: 8
-                        color: parent.open ? "#20D4AF37" : (hRet.hovered ? "#15D4AF37" : "#0D1322")
-                        border.width: 1; border.color: parent.open ? "#55D4AF37" : root.cLine
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                        HoverHandler { id: hRet }
-                        MouseArea { anchors.fill: parent; anchors.rightMargin: 46; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleOpt("reticles") }
-                        Column {
-                            x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 66; spacing: 2
-                            Text { text: (parent.parent.parent.open ? "▾  " : "▸  ") + "Target / lock reticles"; color: root.cCream; font.family: root.mono; font.pixelSize: 12; font.bold: parent.parent.parent.open }
-                            Text { text: "Hover and lock-on brackets around planets"; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
-                        }
-                        OWSwitch { anchors.right: parent.right; anchors.rightMargin: 10; anchors.verticalCenter: parent.verticalCenter; on: WidgetConfig.showReticles; onToggled: (v) => WidgetConfig.setShowReticles(v) }
-                    }
-                    Rectangle {
-                        visible: parent.open; width: parent.width; height: retBody.height + 20; radius: 8; color: "#0B101D"; border.width: 1; border.color: "#2AD4AF37"
-                        Column {
-                            id: retBody; x: 12; y: 10; width: parent.width - 24; spacing: 6
-                            FieldLabel { text: "OPACITY" }
-                            OWSlider { width: parent.width; from: 0.1; to: 1.0; step: 0.05; value: WidgetConfig.reticleOpacity; text: Math.round(WidgetConfig.reticleOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setReticleOpacity(v) }
-                            FieldLabel { text: "STROKE WIDTH" }
-                            OWSlider { width: parent.width; from: 0.5; to: 3.0; step: 0.1; value: WidgetConfig.reticleWidth; text: WidgetConfig.reticleWidth.toFixed(1) + "×"; onMoved: (v) => WidgetConfig.setReticleWidth(v) }
-                        }
-                    }
-                }
-
-                // ---- 6. RENDERING & WIDGETS ----
-                Column {
-                    width: parent.width; spacing: 4
-                    readonly property bool open: root.optOpen["render"] !== false
-                    Rectangle {
-                        width: parent.width; height: 48; radius: 8
-                        color: parent.open ? "#20D4AF37" : (hRen.hovered ? "#15D4AF37" : "#0D1322")
-                        border.width: 1; border.color: parent.open ? "#55D4AF37" : root.cLine
-                        Behavior on color { ColorAnimation { duration: 140 } }
-                        HoverHandler { id: hRen }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleOpt("render") }
-                        Column {
-                            x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 24; spacing: 2
-                            Text { text: (parent.parent.parent.open ? "▾  " : "▸  ") + "Rendering & performance"; color: root.cCream; font.family: root.mono; font.pixelSize: 12; font.bold: parent.parent.parent.open }
-                            Text { text: "Bake resolution, idle FPS cap & widget scaling"; color: root.cDim; font.family: root.mono; font.pixelSize: 10 }
-                        }
-                    }
-                    Rectangle {
-                        visible: parent.open; width: parent.width; height: renBody.height + 20; radius: 8; color: "#0B101D"; border.width: 1; border.color: "#2AD4AF37"
-                        Column {
-                            id: renBody; x: 12; y: 10; width: parent.width - 24; spacing: 10
-                            Row {
-                                width: parent.width
-                                Text { width: parent.width - 40; anchors.verticalCenter: parent.verticalCenter; text: "Shrink widgets when far away"; color: root.cCream; font.family: root.mono; font.pixelSize: 11 }
-                                OWSwitch { anchors.verticalCenter: parent.verticalCenter; on: WidgetConfig.shrinkFar; onToggled: (v) => WidgetConfig.setShrinkFar(v) }
-                            }
-                            Column {
-                                width: parent.width; spacing: 5
-                                FieldLabel { text: "PLANET TEXTURE RESOLUTION" }
-                                Row {
-                                    spacing: 6
-                                    Repeater {
-                                        model: [512, 1024, 2048]
-                                        delegate: OWButton {
-                                            required property int modelData
-                                            label: modelData + " px"
-                                            pad: 10
-                                            active: WidgetConfig.bakeW === modelData
-                                            onClicked: WidgetConfig.setBakeW(modelData)
-                                        }
-                                    }
-                                }
-                            }
-                            Column {
-                                width: parent.width; spacing: 5
-                                FieldLabel { text: "IDLE FPS CAP" }
-                                Row {
-                                    spacing: 6
-                                    Repeater {
-                                        model: [15, 30, 60, 0]
-                                        delegate: OWButton {
-                                            required property int modelData
-                                            label: modelData === 0 ? "OFF" : (modelData + " fps")
-                                            pad: 10
-                                            active: WidgetConfig.fpsIdle === modelData
-                                            onClicked: WidgetConfig.setFpsIdle(modelData)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ---- 7. RESET ----
+            Row {
+                y: 20; spacing: 6
                 Rectangle {
-                    width: parent.width; height: 92; radius: 8; color: "#0D1322"; border.width: 1; border.color: root.cLine
-                    Column {
-                        x: 12; anchors.verticalCenter: parent.verticalCenter; width: parent.width - 24; spacing: 6
-                        Text { text: "Reset"; color: root.cCream; font.family: root.mono; font.pixelSize: 12 }
-                        Text {
-                            width: parent.width; wrapMode: Text.Wrap
-                            text: "Puts every widget back where it started and keeps your keys."
-                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
-                        }
-                        OWButton {
-                            label: root.confirmReset ? "SURE? CLICK AGAIN" : "RESET ALL WIDGETS"
-                            danger: root.confirmReset
-                            onClicked: {
-                                if (root.confirmReset) { WidgetConfig.resetAll(); root.expandedId = ""; root.confirmReset = false; }
-                                else root.confirmReset = true;
-                            }
-                        }
-                    }
-                    Timer { interval: 3000; running: root.confirmReset; onTriggered: root.confirmReset = false }
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 7; height: 7; radius: 4
+                    color: inspectorPanel.d ? WidgetConfig.planetColor(inspectorPanel.d.host) : root.cGold
+                }
+                Text {
+                    text: inspectorPanel.d ? WidgetConfig.planetName(inspectorPanel.d.host).toUpperCase() : ""
+                    color: root.cGold; font.family: root.mono; font.pixelSize: 10; font.letterSpacing: 2
                 }
             }
+            OWButton {
+                anchors.right: inspCloseBtn.left; anchors.rightMargin: 6
+                pad: 7; label: WidgetConfig.isPinned(inspectorPanel.wid) ? "◈" : "◇"
+                active: WidgetConfig.isPinned(inspectorPanel.wid)
+                onClicked: WidgetConfig.togglePin(inspectorPanel.wid)
+            }
+            OWButton {
+                id: inspCloseBtn
+                anchors.right: parent.right; label: "✕"; pad: 7
+                onClicked: { root.expandedId = ""; WidgetConfig.previewId = ""; }
+            }
         }
-        OWScroll { target: optFlick }
-    }
 
-    // ---------------- widget picker (add / change type / restore) ----------------
-    Rectangle {
-        id: picker
-        visible: root.picking
-        anchors.fill: parent
-        radius: root.radius
-        color: "#070911"
-        z: 10
-
-        MouseArea { anchors.fill: parent; hoverEnabled: true; onWheel: (w) => { w.accepted = true; } }   // eat clicks / wheel behind it
-
-        Text {
-            x: 18; y: 18
-            text: root.pickMode === "add" ? "ADD A WIDGET" : "CHANGE WIDGET TYPE"
-            color: root.cCream
-            font.family: root.mono
-            font.bold: true
-            font.pixelSize: 14
-            font.letterSpacing: 3
+        Row {
+            id: inspTabs; x: 16; y: 56; spacing: 6
+            OWButton { label: "ORBIT"; active: root.inspectorTab === "orbit"; onClicked: root.inspectorTab = "orbit" }
+            OWButton { label: "CARD"; active: root.inspectorTab === "card"; onClicked: root.inspectorTab = "card" }
+            OWButton {
+                label: "OPTIONS" + (inspectorPanel.schema.length > 0 ? " (" + inspectorPanel.schema.length + ")" : "")
+                active: root.inspectorTab === "options"
+                onClicked: root.inspectorTab = "options"
+            }
         }
-        OWButton { x: parent.width - width - 18; y: 14; label: "CANCEL"; onClicked: root.picking = false }
-        Text {
-            x: 18; y: 44
-            width: parent.width - 36
-            wrapMode: Text.Wrap
-            text: root.pickMode === "add"
-                  ? "It goes on " + WidgetConfig.planetName(root.lastHost) + (root.pickFromFocus ? " (the planet you are focused on)" : "") + "; move it afterwards. Every widget stays in this list, even after you remove it."
-                  : "Keeps this widget's planet, orbit and size."
-            color: root.cDim
-            font.family: root.mono
-            font.pixelSize: 10
-        }
-        SearchBox {
-            id: pickSearch
-            x: 18; y: 82
-            width: parent.width - 36
-            placeholder: "search"
-            text: root.pickQuery
-            onTextChanged: root.pickQuery = text
-        }
+        Rectangle { x: 16; y: 88; width: parent.width - 32; height: 1; color: root.cLine }
 
         Flickable {
-            id: pickFlick
-            x: 18; y: 120
-            width: parent.width - 46
-            height: parent.height - 120 - 12
-            contentHeight: pickCol.height + 12
+            id: inspFlick
+            x: 16; y: 96
+            width: parent.width - 40
+            height: parent.height - 96 - 48
+            contentWidth: width
+            contentHeight: inspCol.height + 16
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
@@ -1650,60 +2221,292 @@ Rectangle {
                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 onWheel: (e) => {
                     const dy = e.pixelDelta.y !== 0 ? e.pixelDelta.y : e.angleDelta.y;
-                    const f = pickFlick;
-                    f.contentY = Math.max(0, Math.min(Math.max(0, f.contentHeight - f.height), f.contentY - dy));
+                    inspFlick.contentY = Math.max(0, Math.min(Math.max(0, inspFlick.contentHeight - inspFlick.height), inspFlick.contentY - dy));
                 }
             }
 
             Column {
-                id: pickCol
-                width: parent.width - 8
-                Repeater {
-                    model: root.pickModel
-                    delegate: Item {
-                        id: pe
-                        required property var modelData
-                        width: pickCol.width
-                        height: modelData.kind === "group" ? 30 : 28
+                id: inspCol
+                width: inspFlick.width - 6
+                spacing: 8
 
-                        Text {
-                            visible: pe.modelData.kind === "group"
-                            anchors.bottom: parent.bottom
-                            anchors.bottomMargin: 4
-                            text: pe.modelData.text || ""
-                            color: root.cGold
-                            font.family: root.mono
-                            font.pixelSize: 10
-                            font.bold: true
-                            font.letterSpacing: 2
+                // ---- SUB-TAB 1: ORBIT (grouped cards + per-option resets) ----
+                Column {
+                    visible: root.inspectorTab === "orbit"
+                    width: parent.width; spacing: 8
+
+                    InsetCard {
+                        width: parent.width; heading: "PLACEMENT"
+
+                        FieldHeader { label: "WIDGET TYPE"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "source"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "source") }
+                        OWButton {
+                            label: (inspectorPanel.d ? WidgetConfig.widgetName(inspectorPanel.d) : "") + "   ▾ change"
+                            onClicked: root.startPick("swap", inspectorPanel.wid)
                         }
-                        Rectangle {
-                            visible: pe.modelData.kind !== "group"
+
+                        FieldHeader { label: "PLANET"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "host"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "host") }
+                        OWDropdown {
                             width: parent.width
-                            height: 30
-                            radius: 7
-                            color: pma.containsMouse ? "#1CD4AF37" : "transparent"
-                            Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                            Text {
-                                x: 8
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width - 16
-                                elide: Text.ElideRight
-                                text: pe.modelData.kind === "restore"
-                                      ? pe.modelData.name + "   ·   " + WidgetConfig.planetName(pe.modelData.planet)
-                                      : (pe.modelData.name || "")
-                                color: pe.modelData.kind === "restore" ? root.cGold : root.cCream
-                                font.family: root.mono
-                                font.pixelSize: 12
+                            model: root.planetChoices
+                            value: inspectorPanel.d ? inspectorPanel.d.host : ""
+                            onSelected: (v) => { WidgetConfig.setField(inspectorPanel.wid, "host", v); root.lastHost = v; root.flyRequested(v); }
+                        }
+
+                        FieldHeader { label: "VISIBLE"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "show"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "show") }
+                        Row {
+                            spacing: 6
+                            OWButton { label: "NEAR PLANET"; active: inspectorPanel.d !== null && inspectorPanel.d.show !== "always"; onClicked: WidgetConfig.setField(inspectorPanel.wid, "show", "focus") }
+                            OWButton { label: "ALWAYS"; active: inspectorPanel.d !== null && inspectorPanel.d.show === "always"; onClicked: WidgetConfig.setField(inspectorPanel.wid, "show", "always") }
+                        }
+                    }
+
+                    InsetCard {
+                        width: parent.width; heading: "ORBIT & SCALE"
+
+                        FieldHeader { label: "SIZE"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "size"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "size") }
+                        OWSlider {
+                            width: parent.width; from: 0.1; to: 5.0; step: 0.05
+                            value: inspectorPanel.d ? inspectorPanel.d.size : 1
+                            text: (inspectorPanel.d ? inspectorPanel.d.size : 1).toFixed(2) + "×"
+                            onMoved: (v) => WidgetConfig.setField(inspectorPanel.wid, "size", v)
+                        }
+
+                        FieldHeader { label: "SPEED (− = reverse, 0 = parked)"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "speed"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "speed") }
+                        OWSlider {
+                            width: parent.width; from: -2.0; to: 2.0; step: 0.01; bipolar: true
+                            value: inspectorPanel.d ? inspectorPanel.d.orbit.speed : 0
+                            text: inspectorPanel.d ? root.fmtSpeed(inspectorPanel.d.orbit.speed) : ""
+                            onMoved: (v) => WidgetConfig.setField(inspectorPanel.wid, "speed", Math.abs(v) < 0.015 ? 0 : v)
+                        }
+
+                        FieldHeader { label: "DISTANCE"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "k"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "k") }
+                        OWSlider {
+                            width: parent.width; from: 0.5; to: 10.0; step: 0.05
+                            value: inspectorPanel.d ? inspectorPanel.d.orbit.k : 2
+                            text: (inspectorPanel.d ? inspectorPanel.d.orbit.k : 2).toFixed(2) + " radii"
+                            onMoved: (v) => WidgetConfig.setField(inspectorPanel.wid, "k", v)
+                        }
+
+                        OWToggleRow {
+                            label: "Pause orbit on hover"
+                            on: inspectorPanel.d !== null && inspectorPanel.d.holdOnHover !== false
+                            modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "holdOnHover")
+                            onToggled: (v) => WidgetConfig.setField(inspectorPanel.wid, "holdOnHover", v)
+                            onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "holdOnHover")
+                        }
+                    }
+
+                    InsetCard {
+                        width: parent.width; heading: "AXIS"
+
+                        FieldHeader { label: "TILT"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "tilt"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "tilt") }
+                        OWSlider {
+                            width: parent.width; from: -3.14; to: 3.14; step: 0.05; typedScale: 57.2958
+                            value: inspectorPanel.d ? inspectorPanel.d.orbit.tilt : 0
+                            text: Math.round((inspectorPanel.d ? inspectorPanel.d.orbit.tilt : 0) * 57.2958) + "°"
+                            onMoved: (v) => WidgetConfig.setField(inspectorPanel.wid, "tilt", v)
+                        }
+
+                        FieldHeader { label: "TURN"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "node"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "node") }
+                        OWSlider {
+                            width: parent.width; from: 0; to: 6.28; step: 0.05; typedScale: 57.2958
+                            value: inspectorPanel.d ? (inspectorPanel.d.orbit.node || 0) : 0
+                            text: Math.round((inspectorPanel.d ? (inspectorPanel.d.orbit.node || 0) : 0) * 57.2958) + "°"
+                            onMoved: (v) => WidgetConfig.setField(inspectorPanel.wid, "node", v)
+                        }
+                    }
+
+                    InsetCard {
+                        visible: inspectorPanel.keyAction !== ""
+                        width: parent.width; heading: "SHORTCUT KEY"
+                        Row {
+                            spacing: 8
+                            OWButton {
+                                readonly property string curSeq: Keybinds.seq(inspectorPanel.keyAction)
+                                label: root.capturing === inspectorPanel.keyAction ? "PRESS A KEY…" : (curSeq === "" ? "NONE" : Keybinds.pretty(curSeq))
+                                dim: curSeq === "" && root.capturing !== inspectorPanel.keyAction
+                                active: root.capturing === inspectorPanel.keyAction || Keybinds.isCustom(inspectorPanel.keyAction)
+                                onClicked: { if (root.capturing === inspectorPanel.keyAction) { root.capturing = ""; root.keyMsg = ""; } else root.startCapture(inspectorPanel.keyAction); }
                             }
-                            MouseArea {
-                                id: pma
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    if (pe.modelData.kind === "restore") root.pickRestore(pe.modelData.id);
-                                    else if (pe.modelData.kind === "item") root.pickChosen(pe.modelData.source);
+                            OWButton {
+                                visible: Keybinds.seq(inspectorPanel.keyAction) !== "" && root.capturing !== inspectorPanel.keyAction
+                                label: "NONE"; pad: 7
+                                onClicked: { Keybinds.unbind(inspectorPanel.keyAction); root.keyMsg = ""; }
+                            }
+                            OWResetBtn {
+                                anchors.verticalCenter: parent.verticalCenter
+                                shown: Keybinds.isCustom(inspectorPanel.keyAction)
+                                onClicked: WidgetConfig.resetKey(inspectorPanel.keyAction)
+                            }
+                        }
+                    }
+                }
+
+                // ---- SUB-TAB 2: CARD APPEARANCE (grouped cards + per-option resets) ----
+                Column {
+                    visible: root.inspectorTab === "card"
+                    width: parent.width; spacing: 8
+
+                    InsetCard {
+                        width: parent.width; heading: "SHAPE & TITLE"
+
+                        FieldHeader { label: "OPACITY"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "opacity"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "opacity") }
+                        OWSlider {
+                            width: parent.width; from: 0.1; to: 1.0; step: 0.05
+                            value: inspectorPanel.d ? inspectorPanel.d.opacity : 1.0
+                            text: Math.round((inspectorPanel.d ? inspectorPanel.d.opacity : 1.0) * 100) + "%"
+                            onMoved: (v) => WidgetConfig.setField(inspectorPanel.wid, "opacity", v)
+                        }
+
+                        FieldHeader { label: "CORNER RADIUS (-1 = global)"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "cardRadius"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "cardRadius") }
+                        OWSlider {
+                            width: parent.width; from: -1; to: 24; step: 1
+                            value: inspectorPanel.d ? inspectorPanel.d.cardRadius : -1
+                            text: (inspectorPanel.d && inspectorPanel.d.cardRadius >= 0) ? Math.round(inspectorPanel.d.cardRadius) + " px" : "global"
+                            onMoved: (v) => WidgetConfig.setField(inspectorPanel.wid, "cardRadius", Math.round(v))
+                        }
+
+                        OWToggleRow {
+                            label: "Show corner brackets"
+                            on: inspectorPanel.d !== null && inspectorPanel.d.showBrackets !== false
+                            modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "showBrackets")
+                            onToggled: (v) => WidgetConfig.setField(inspectorPanel.wid, "showBrackets", v)
+                            onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "showBrackets")
+                        }
+
+                        FieldHeader { label: "CUSTOM TITLE"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "customTitle"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "customTitle") }
+                        OWTextField {
+                            width: parent.width; placeholder: "default"
+                            value: inspectorPanel.d ? (inspectorPanel.d.customTitle || "") : ""
+                            onEdited: (v) => WidgetConfig.setField(inspectorPanel.wid, "customTitle", v)
+                        }
+                    }
+
+                    InsetCard {
+                        width: parent.width; heading: "COLOURS"
+
+                        FieldHeader { label: "BACKGROUND"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "cardBg"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "cardBg") }
+                        OWColorPicker {
+                            width: parent.width
+                            value: inspectorPanel.d ? (inspectorPanel.d.cardBg || "") : ""
+                            onEdited: (v) => WidgetConfig.setField(inspectorPanel.wid, "cardBg", v)
+                        }
+
+                        FieldHeader { label: "ACCENT / BRACKETS"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "cardAccent"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "cardAccent") }
+                        OWColorPicker {
+                            width: parent.width
+                            value: inspectorPanel.d ? (inspectorPanel.d.cardAccent || "") : ""
+                            onEdited: (v) => WidgetConfig.setField(inspectorPanel.wid, "cardAccent", v)
+                        }
+
+                        FieldHeader { label: "BORDER"; modified: WidgetConfig.fieldIsModified(inspectorPanel.wid, "cardBorder"); onResetClicked: WidgetConfig.resetField(inspectorPanel.wid, "cardBorder") }
+                        OWColorPicker {
+                            width: parent.width
+                            value: inspectorPanel.d ? (inspectorPanel.d.cardBorder || "") : ""
+                            onEdited: (v) => WidgetConfig.setField(inspectorPanel.wid, "cardBorder", v)
+                        }
+                    }
+                }
+
+                // ---- SUB-TAB 3: WIDGET-SPECIFIC OPTIONS ----
+                Column {
+                    visible: root.inspectorTab === "options"
+                    width: parent.width; spacing: 8
+
+                    Text {
+                        visible: inspectorPanel.schema.length === 0
+                        width: parent.width; wrapMode: Text.Wrap; topPadding: 12
+                        text: "No extra widget options. Use ORBIT and CARD to customise placement and style."
+                        color: root.cDim; font.family: root.mono; font.pixelSize: 11
+                    }
+
+                    InsetCard {
+                        visible: inspectorPanel.schema.length > 0
+                        width: parent.width; heading: "WIDGET SETTINGS"
+
+                        Repeater {
+                            model: inspectorPanel.schema
+                            delegate: Column {
+                                id: opt
+                                required property var modelData
+                                readonly property var s: modelData
+                                readonly property var cur: (inspectorPanel.d && inspectorPanel.d.cfg && inspectorPanel.d.cfg[s.key] !== undefined) ? inspectorPanel.d.cfg[s.key] : s.default
+                                readonly property string lbl: String(s.label || s.key)
+                                readonly property bool mod: WidgetConfig.settingIsModified(inspectorPanel.wid, s.key)
+                                width: parent.width; spacing: 4
+
+                                OWToggleRow {
+                                    visible: opt.s.type === "toggle"
+                                    label: opt.lbl; on: opt.cur === true; modified: opt.mod
+                                    onToggled: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                    onResetClicked: WidgetConfig.resetSetting(inspectorPanel.wid, opt.s.key)
+                                }
+
+                                FieldHeader {
+                                    visible: opt.s.type !== "toggle"
+                                    label: opt.lbl.toUpperCase(); modified: opt.mod
+                                    onResetClicked: WidgetConfig.resetSetting(inspectorPanel.wid, opt.s.key)
+                                }
+
+                                OWSlider {
+                                    visible: opt.s.type === "number"; width: opt.width
+                                    from: opt.s.min !== undefined ? opt.s.min : 0
+                                    to: opt.s.max !== undefined ? opt.s.max : 100
+                                    step: opt.s.step !== undefined ? opt.s.step : 1
+                                    value: Number(opt.cur)
+                                    text: String(Math.round(Number(opt.cur) * 1000) / 1000) + (opt.s.unit ? " " + opt.s.unit : "")
+                                    onMoved: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                }
+
+                                Flow {
+                                    visible: opt.s.type === "choice" && Array.isArray(opt.s.choices) && opt.s.choices.length <= 3
+                                    width: opt.width; spacing: 5
+                                    Repeater {
+                                        model: opt.s.type === "choice" && Array.isArray(opt.s.choices) && opt.s.choices.length <= 3 ? opt.s.choices : []
+                                        delegate: OWButton {
+                                            required property var modelData
+                                            readonly property var val: (typeof modelData === "object") ? modelData.value : modelData
+                                            label: String((typeof modelData === "object") ? (modelData.label !== undefined ? modelData.label : modelData.value) : modelData)
+                                            pad: 7; active: opt.cur === val
+                                            onClicked: WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, val)
+                                        }
+                                    }
+                                }
+
+                                OWDropdown {
+                                    visible: opt.s.type === "choice" && Array.isArray(opt.s.choices) && opt.s.choices.length > 3
+                                    width: opt.width
+                                    model: opt.s.type === "choice" && Array.isArray(opt.s.choices) ? opt.s.choices : []
+                                    value: opt.cur
+                                    onSelected: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                }
+
+                                OWColorPicker {
+                                    visible: opt.s.type === "color"; width: opt.width
+                                    allowBlank: opt.s.default === ""
+                                    defaultValue: String(opt.s.default !== undefined ? opt.s.default : "")
+                                    value: String(opt.cur)
+                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                }
+
+                                OWFontPicker {
+                                    visible: opt.s.type === "font"; width: opt.width
+                                    allowBlank: opt.s.default === ""
+                                    defaultValue: String(opt.s.default !== undefined ? opt.s.default : "")
+                                    value: String(opt.cur)
+                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                }
+
+                                OWFileField {
+                                    visible: opt.s.type === "file"; width: opt.width
+                                    title: opt.lbl; value: String(opt.cur)
+                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                }
+
+                                OWTextField {
+                                    visible: opt.s.type === "text"; width: opt.width
+                                    value: String(opt.cur)
+                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
                                 }
                             }
                         }
@@ -1711,6 +2514,14 @@ Rectangle {
                 }
             }
         }
-        OWScroll { target: pickFlick }
+        OWScroll { target: inspFlick }
+
+        Rectangle { x: 16; y: parent.height - 44; width: parent.width - 32; height: 1; color: root.cLine }
+        Row {
+            x: 16; y: parent.height - 36; spacing: 6
+            OWButton { label: "SHOW PLANET"; onClicked: root.flyRequested(inspectorPanel.d ? inspectorPanel.d.host : "") }
+            OWButton { label: "RESET"; dim: !inspectorPanel.modified; onClicked: WidgetConfig.resetWidget(inspectorPanel.wid) }
+            OWButton { label: "REMOVE"; danger: true; onClicked: { WidgetConfig.removeWidget(inspectorPanel.wid); root.expandedId = ""; } }
+        }
     }
 }

@@ -1,7 +1,7 @@
 import QtQuick
 import "."
 
-// Round weather tile: dot icon, temperature in dots, condition + low/high. Data: GlyphWeatherData (Open-Meteo).
+// Round weather tile: dot icon, temperature in dots, condition + low/high.
 GlyphCard {
     id: w
     designW: 220
@@ -25,21 +25,25 @@ GlyphCard {
         if (c <= 77 || c <= 86) return "snow";
         return "storm";
     }
+    function cvt(c) { return w.cfg.unit === "F" ? Math.round(c * 9 / 5 + 32) : Math.round(c); }
 
     readonly property bool ok: GlyphWeatherData.ok
+    readonly property color dotCol: (cfg.dotColor && cfg.dotColor !== "") ? cfg.dotColor : GlyphTheme.fg
 
     GlyphBitmap {
+        visible: w.cfg.showIcon !== false
         anchors.horizontalCenter: parent.horizontalCenter
         y: 34
         rows: w.icons[w.ok ? w.iconFor(GlyphWeatherData.code, GlyphWeatherData.day) : "cloud"]
         cell: 7
-        on: w.ok ? GlyphTheme.fg : GlyphTheme.mute
+        on: w.ok ? w.dotCol : GlyphTheme.mute
     }
     GlyphDots {
         anchors.horizontalCenter: parent.horizontalCenter
-        y: 110
-        text: w.ok ? String(Math.round(GlyphWeatherData.temp)) + "\u00B0" : "--"
+        y: w.cfg.showIcon !== false ? 110 : 82
+        text: w.ok ? String(w.cvt(GlyphWeatherData.temp)) + "\u00B0" : "--"
         cell: 7
+        on: w.dotCol
     }
     GlyphLabel {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -47,6 +51,6 @@ GlyphCard {
         width: 150
         horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
-        text: w.ok ? GlyphWeatherData.desc(GlyphWeatherData.code) + " " + Math.round(GlyphWeatherData.tmin) + "/" + Math.round(GlyphWeatherData.tmax) : "no sky"
+        text: w.ok ? (GlyphWeatherData.desc(GlyphWeatherData.code) + (w.cfg.showRange !== false ? (" " + w.cvt(GlyphWeatherData.tmin) + "/" + w.cvt(GlyphWeatherData.tmax)) : "")) : "no sky"
     }
 }

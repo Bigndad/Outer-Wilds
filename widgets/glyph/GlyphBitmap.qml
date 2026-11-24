@@ -9,6 +9,7 @@ Item {
     property real dot: cell * 0.72
     property color on: GlyphTheme.fg
     property color off: GlyphTheme.s3
+    property color red: GlyphTheme.red
     property bool showOff: false
     readonly property int cols: rows.length > 0 ? rows[0].length : 0
     width: cols * cell
@@ -25,7 +26,7 @@ Item {
             radius: root.dot / 2
             x: (index % root.cols) * root.cell + (root.cell - root.dot) / 2
             y: Math.floor(index / root.cols) * root.cell + (root.cell - root.dot) / 2
-            color: ch === "R" ? GlyphTheme.red : ch === "#" ? root.on : root.off
+            color: ch === "R" ? root.red : ch === "#" ? root.on : root.off
         }
     }
 }

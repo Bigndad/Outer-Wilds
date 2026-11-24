@@ -14,6 +14,8 @@ Item {
     property real minAspect: 1.5
     property real maxAspect: 4.5
     property bool isRound: false
+    property int lowWarn: 20
+    property bool showTime: true
 
     readonly property bool hasBattery: UPower.displayDevice.ready ? UPower.displayDevice.isLaptopBattery : !SystemInfo.isDesktop
     readonly property int batCapacity: (UPower.displayDevice.ready && hasBattery) ? Math.round(UPower.displayDevice.percentage * 100) : 0
@@ -23,7 +25,7 @@ Item {
     readonly property color batColorFlat: {
         if (!hasBattery) return ThemeBackend.subtext0;
         if (isCharging) return ThemeBackend.green;
-        if (batCapacity <= 20) return ThemeBackend.red;
+        if (batCapacity <= root.lowWarn) return ThemeBackend.red;
         return ThemeBackend.blue;
     }
 
@@ -180,6 +182,7 @@ Item {
                         font.weight: Font.Bold
                         font.pixelSize: Math.max(Scaler.s(9), Math.min(Scaler.s(12), root.height * 0.13))
                         color: bRoot.contentTextColor === ThemeBackend.crust ? Qt.alpha(ThemeBackend.crust, 0.85) : (root.isCharging ? ThemeBackend.green : ThemeBackend.subtext0)
+                        visible: root.showTime
                         text: root.hasBattery ? root.timeString : "AC power connected"
                         elide: Text.ElideRight
                         Layout.fillWidth: true

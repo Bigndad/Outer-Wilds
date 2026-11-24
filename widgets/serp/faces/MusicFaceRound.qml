@@ -21,6 +21,8 @@ Item {
     property bool isRound: true
 
     property bool continuous: false
+    property bool spinDisc: true
+    property bool showGrooves: true
 
     property var player: MprisController.activePlayer
     property bool isMediaActive: player !== null && player.playbackState !== MprisPlaybackState.Stopped && player.trackTitle !== ""
@@ -192,7 +194,7 @@ Item {
                     duration: 24000
                     loops: Animation.Infinite
                     running: true
-                    paused: !(root.isMediaActive && MprisController.isPlaying)
+                    paused: !(root.spinDisc && root.isMediaActive && MprisController.isPlaying)
                 }
 
                 Item {
@@ -260,6 +262,7 @@ Item {
                     Repeater {
                         model: [0.92, 0.84, 0.76, 0.68, 0.60, 0.52, 0.44]
                         delegate: Rectangle {
+                            visible: root.showGrooves
                             anchors.centerIn: parent
                             width: parent.width * modelData
                             height: width

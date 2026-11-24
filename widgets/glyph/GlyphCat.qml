@@ -1,7 +1,7 @@
 import QtQuick
 import "."
 
-// A little dot cat (drawn here, not the glyph-rice gif): blinks now and then, wags its tail while you hover, red nose.
+// A little dot cat: blinks, wags its tail while hovered (or always), coloured nose.
 GlyphCard {
     id: w
     designW: 220
@@ -26,16 +26,25 @@ GlyphCard {
     }
 
     Timer {
-        interval: 3200; running: true; repeat: true
+        interval: Math.max(800, Math.round((Number(w.cfg.blinkSec) || 3.2) * 1000))
+        running: true; repeat: true
         onTriggered: { w.blink = true; off.restart(); }
     }
     Timer { id: off; interval: 160; onTriggered: w.blink = false }
-    Timer { interval: 420; running: ma.containsMouse; repeat: true; onTriggered: w.wag = !w.wag; onRunningChanged: if (!running) w.wag = false }
+    Timer {
+        interval: 420
+        running: ma.containsMouse || w.cfg.alwaysWag === true
+        repeat: true
+        onTriggered: w.wag = !w.wag
+        onRunningChanged: if (!running) w.wag = false
+    }
 
     GlyphBitmap {
         anchors.centerIn: parent
         rows: w.rows
         cell: 11
+        on: (w.cfg.catColor && w.cfg.catColor !== "") ? w.cfg.catColor : GlyphTheme.fg
+        red: (w.cfg.noseColor && w.cfg.noseColor !== "") ? w.cfg.noseColor : GlyphTheme.red
     }
     MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; onClicked: { w.blink = true; off.restart(); } }
 }

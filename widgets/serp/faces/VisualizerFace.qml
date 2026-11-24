@@ -40,6 +40,7 @@ Item {
 
     property real barSpacing: Scaler.s(4)
     property real minBarWidth: Scaler.s(6)
+    property bool edgeFadeOpt: true
     property int activeBars: Math.max(4, Math.min(128, Math.floor((width + barSpacing) / (minBarWidth + barSpacing))))
 
     Visualizer {
@@ -52,6 +53,6 @@ Item {
         radiusRatio: 0.35
         opacityBase: 0.3
         opacityRange: 0.7
-        edgeFade: true
+        edgeFade: root.edgeFadeOpt
     }
 }

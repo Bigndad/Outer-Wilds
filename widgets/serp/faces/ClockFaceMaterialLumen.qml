@@ -15,6 +15,10 @@ Item {
     property bool isRound: true
 
     property bool showSeconds: true
+    property string dialHex: ""
+    property string hourHex: ""
+    property string minuteHex: ""
+    property string secondHex: ""
 
     property real hourAngle: 0
     property real minuteAngle: 0
@@ -79,10 +83,10 @@ Item {
         return fallback;
     }
 
-    readonly property color dialColor: resolveColor("primary_container", ThemeBackend.surface0)
-    readonly property color hourHandColor: resolveColor("secondary", ThemeBackend.peach)
-    readonly property color minuteHandColor: resolveColor("primary", ThemeBackend.mauve)
-    readonly property color secondHandColor: resolveColor("tertiary", ThemeBackend.teal)
+    readonly property color dialColor: root.dialHex !== "" ? root.dialHex : resolveColor("primary_container", ThemeBackend.surface0)
+    readonly property color hourHandColor: root.hourHex !== "" ? root.hourHex : resolveColor("secondary", ThemeBackend.peach)
+    readonly property color minuteHandColor: root.minuteHex !== "" ? root.minuteHex : resolveColor("primary", ThemeBackend.mauve)
+    readonly property color secondHandColor: root.secondHex !== "" ? root.secondHex : resolveColor("tertiary", ThemeBackend.teal)
     readonly property color numberColor: resolveColor("on_primary_container", ThemeBackend.text)
 
     readonly property real handWidth: Math.min(root.width, root.height) * 0.054

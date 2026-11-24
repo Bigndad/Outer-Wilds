@@ -1,18 +1,19 @@
 pragma Singleton
 import QtQuick
+import "../../.."
 
 // Outer Wilds palette for the ported Lucid widgets. Every colour lives in the
 // first block so a planet-specific palette can replace it later.
 QtObject {
     // ---- palette (edit here) ----
-    readonly property color bg: "#e00a0c12"
+    readonly property color bg: WidgetConfig.lucidBg !== "" ? WidgetConfig.lucidBg : "#e00a0c12"
     readonly property color surfaceHighest: "#2a2a33"
-    readonly property color text: "#ead9b4"
+    readonly property color text: WidgetConfig.lucidText !== "" ? WidgetConfig.lucidText : "#ead9b4"
     readonly property color subtext: "#b5a783"
     readonly property color subtextDim: "#7d7358"
-    readonly property color accent: "#e8b54a"
+    readonly property color accent: WidgetConfig.lucidAccent !== "" ? WidgetConfig.lucidAccent : "#e8b54a"
     readonly property color fgAccent: "#1a1408"
-    readonly property color primary: "#e8b54a"
+    readonly property color primary: accent
     readonly property color fgPrimary: "#1a1408"
     readonly property color primaryContainer: "#3b2f14"
     readonly property color fgPrimaryContainer: "#f3e3ba"
@@ -35,7 +36,7 @@ QtObject {
     readonly property real uiScale: 1
     readonly property real stateHover: 0.08
     readonly property real statePressed: 0.12
-    readonly property string fontFamily: "sans-serif"
+    readonly property string fontFamily: WidgetConfig.lucidFont !== "" ? WidgetConfig.lucidFont : "sans-serif"
 
     readonly property int durQuick: 120
     readonly property int durShort: 200

@@ -14,21 +14,24 @@ Item {
     property real minAspect: 1.2
     property real maxAspect: 5.0
     property bool isRound: false
+    property bool showShadow: true
+    property string textHex: ""
+    property string fontOverride: ""
 
     Text {
         anchors.fill: parent
         anchors.margins: Math.min(parent.width, parent.height) * 0.05
         text: DateTime.time
-        font.family: ThemeBackend.fontFamily
+        font.family: root.fontOverride !== "" ? root.fontOverride : ThemeBackend.fontFamily
         font.pixelSize: height
         fontSizeMode: Text.Fit
         minimumPixelSize: 10
         font.weight: Font.Black
-        color: ThemeBackend.text
+        color: root.textHex !== "" ? root.textHex : ThemeBackend.text
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
 
-        layer.enabled: true
+        layer.enabled: root.showShadow
         layer.effect: MultiEffect {
             shadowEnabled: true
             shadowColor: "#000000"

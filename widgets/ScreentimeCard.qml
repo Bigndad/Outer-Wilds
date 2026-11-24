@@ -7,11 +7,14 @@ import ".."
 WidgetCard {
     id: w
     title: "SCREEN TIME"
-    designW: 250
+    designW: 260
     designH: 150
 
+    property var cfg: ({ maxApps: 3, showBars: true, barColor: "#D4AF37", headerTag: "TODAY", pollSec: 3 })
+
     property int total: 0
-    property var apps: []
+    property var allApps: []
+    readonly property var apps: allApps.slice(0, Math.max(1, Math.round(cfg.maxApps || 3)))
 
     function fmt(s) {
         const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -26,11 +29,17 @@ WidgetCard {
             try {
                 const d = JSON.parse(text());
                 w.total = d.total || 0;
-                w.apps = (d.apps || []).slice(0, 3);
+                w.allApps = d.apps || [];
             } catch (e) {}
         }
     }
-    Timer { interval: 3000; running: true; repeat: true; triggeredOnStart: true; onTriggered: live.reload() }
+    Timer {
+        interval: Math.max(1000, Math.round((w.cfg.pollSec || 3) * 1000))
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: live.reload()
+    }
 
     Text {
         id: big
@@ -40,16 +49,16 @@ WidgetCard {
         color: w.cCream
         font.family: "monospace"
         font.bold: true
-        font.pixelSize: Math.round(30 * w.ui)
+        font.pixelSize: Math.max(10, Math.round(30 * w.ui))
     }
     Text {
         anchors.left: big.right
         anchors.leftMargin: 8 * w.ui
         anchors.baseline: big.baseline
-        text: "TODAY"
+        text: w.cfg.headerTag !== undefined ? w.cfg.headerTag : "TODAY"
         color: w.cDim
         font.family: "monospace"
-        font.pixelSize: Math.round(11 * w.ui)
+        font.pixelSize: Math.max(7, Math.round(11 * w.ui))
     }
 
     Column {
@@ -62,28 +71,29 @@ WidgetCard {
             model: w.apps
             delegate: Item {
                 width: parent.width
-                height: 22 * w.ui
+                height: (w.cfg.showBars !== false ? 22 : 16) * w.ui
                 Text {
                     text: modelData.name
                     color: w.cCream
                     elide: Text.ElideRight
                     width: parent.width - 56 * w.ui
                     font.family: "monospace"
-                    font.pixelSize: Math.round(11 * w.ui)
+                    font.pixelSize: Math.max(7, Math.round(11 * w.ui))
                 }
                 Text {
                     anchors.right: parent.right
                     text: w.fmt(modelData.seconds)
                     color: w.cDim
                     font.family: "monospace"
-                    font.pixelSize: Math.round(11 * w.ui)
+                    font.pixelSize: Math.max(7, Math.round(11 * w.ui))
                 }
                 Rectangle {
+                    visible: w.cfg.showBars !== false
                     anchors.bottom: parent.bottom
                     height: Math.max(2, Math.round(3 * w.ui))
                     width: Math.max(3 * w.ui, parent.width * modelData.percent / 100)
                     radius: height / 2
-                    color: w.cGold
+                    color: w.cfg.barColor || w.cGold
                 }
             }
         }
@@ -94,7 +104,7 @@ WidgetCard {
         text: "NO DATA YET"
         color: w.cDim
         font.family: "monospace"
-        font.pixelSize: Math.round(11 * w.ui)
+        font.pixelSize: Math.max(8, Math.round(11 * w.ui))
     }
 
     MouseArea {

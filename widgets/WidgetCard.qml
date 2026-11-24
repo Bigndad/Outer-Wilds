@@ -17,20 +17,24 @@ Item {
     readonly property color cGold: "#D4AF37"
     readonly property color cDim: "#8A7F66"
     readonly property color cBg: "#E007080C"
-    property color accent: cGold        // corner brackets (a widget may set its own, e.g. the weather card)
+    property var cardStyle: ({})        // per-widget overrides pushed by WidgetSlot
+    readonly property string effTitle: (cardStyle && cardStyle.title) ? cardStyle.title : title
+    readonly property bool effBrackets: (cardStyle && cardStyle.brackets !== undefined) ? cardStyle.brackets : WidgetConfig.widgetBrackets
+    property color accent: (cardStyle && cardStyle.accent) ? cardStyle.accent : WidgetConfig.widgetAccent
 
     width: Math.round(designW * ui)
     height: Math.round(designH * ui)
 
     Rectangle {
         anchors.fill: parent
-        radius: 6 * card.ui
-        color: card.cBg
-        border.color: "#55D4AF37"
+        radius: ((card.cardStyle && card.cardStyle.radius >= 0) ? card.cardStyle.radius : WidgetConfig.widgetRadius) * card.ui
+        color: (card.cardStyle && card.cardStyle.bg) ? card.cardStyle.bg : card.cBg
+        border.color: (card.cardStyle && card.cardStyle.border) ? card.cardStyle.border : "#55D4AF37"
         border.width: Math.max(1, Math.round(card.ui))
     }
 
     component Bracket: Item {
+        visible: card.effBrackets
         property bool atRight: false
         property bool atBottom: false
         width: 11 * card.ui
@@ -56,10 +60,10 @@ Item {
     Bracket { atRight: true; atBottom: true }
 
     Text {
-        visible: card.title !== ""
+        visible: card.effTitle !== ""
         x: 14 * card.ui
         y: 9 * card.ui
-        text: card.title
+        text: card.effTitle
         color: card.cDim
         font.family: "monospace"
         font.pixelSize: Math.max(8, Math.round(11 * card.ui))
@@ -70,6 +74,6 @@ Item {
         id: body
         anchors.fill: parent
         anchors.margins: 12 * card.ui
-        anchors.topMargin: card.title !== "" ? 30 * card.ui : 12 * card.ui
+        anchors.topMargin: card.effTitle !== "" ? 30 * card.ui : 12 * card.ui
     }
 }

@@ -19,6 +19,12 @@ Item {
     property bool isRound: false
 
     property string username: ""
+    property string customUser: ""
+    property string accentHex: ""
+    onCustomUserChanged: {
+        const u = customUser.trim();
+        if (u !== "" && u !== username) { saveUsername(u); loadUser(u, false); }
+    }
     property var rawContributionsList: []
     property var weeks: []
     property int totalContributions: 0
@@ -121,7 +127,7 @@ Item {
     }
 
     function getColorForLevel(lvl) {
-        let accent = (typeof ThemeBackend !== "undefined" && ThemeBackend.green) ? ThemeBackend.green : Qt.color("#a6e3a1");
+        let accent = (root.accentHex && root.accentHex.length >= 4) ? Qt.color(root.accentHex) : ((typeof ThemeBackend !== "undefined" && ThemeBackend.green) ? ThemeBackend.green : Qt.color("#a6e3a1"));
         let baseSurface = (typeof ThemeBackend !== "undefined" && ThemeBackend.surface1) ? ThemeBackend.surface1 : Qt.color("#313244");
         if (lvl <= 0) return Qt.alpha(baseSurface, widgetGlass.active ? ThemeBackend.glassElementOpacity : 1);
         if (lvl === 1) return Qt.rgba(accent.r, accent.g, accent.b, 0.35);
@@ -398,6 +404,7 @@ Item {
         running: false
         stdout: StdioCollector {
             onStreamFinished: {
+                if (root.customUser.trim() !== "") return;
                 let u = this.text.trim();
                 if (u !== "") {
                     root.loadUser(u, false);

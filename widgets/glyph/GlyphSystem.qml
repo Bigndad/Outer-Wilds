@@ -2,17 +2,20 @@ import QtQuick
 import "../.."
 import "."
 
-// cpu / ram / gpu temp / vram as dot numbers, plus a 68 s cpu history drawn on a dot grid
-// (top dot of each column white, filled part grey).
+// cpu / ram / gpu temp / vram as dot numbers, plus CPU history dot grid.
 GlyphCard {
     id: w
     designW: 440
     designH: 190
 
+    readonly property int pollSec: Math.max(1, Math.round(cfg.pollSec || 2))
+    readonly property color dotCol: (cfg.dotColor && cfg.dotColor !== "") ? cfg.dotColor : GlyphTheme.fg
+    readonly property real gpuTempVal: cfg.tempUnit === "F" ? (Sensors.gpuTempC * 9 / 5 + 32) : Sensors.gpuTempC
+
     property var hist: new Array(34).fill(0)
     Timer {
-        interval: 2000
-        running: w.visible
+        interval: w.pollSec * 1000
+        running: w.visible && w.cfg.showGraph !== false
         repeat: true
         onTriggered: {
             const h = w.hist.slice(1);
@@ -26,7 +29,7 @@ GlyphCard {
         property string value
         spacing: 8
         GlyphLabel { text: parent.label }
-        GlyphDots { text: parent.value; cell: 4.5 }
+        GlyphDots { text: parent.value; cell: 4.5; on: w.dotCol }
     }
 
     Grid {
@@ -37,15 +40,16 @@ GlyphCard {
         rowSpacing: 22
         Stat { label: "cpu";  value: Sensors.cpuPercent + "%" }
         Stat { label: "ram gb"; value: Sensors.ramUsedGb.toFixed(1) }
-        Stat { label: "gpu temp"; value: Math.round(Sensors.gpuTempC) + "\u00B0" }
+        Stat { label: "gpu temp"; value: Math.round(w.gpuTempVal) + "\u00B0" }
         Stat { label: "vram";  value: Sensors.vramPercent + "%" }
     }
 
     Column {
+        visible: w.cfg.showGraph !== false
         x: 250
         anchors.verticalCenter: parent.verticalCenter
         spacing: 12
-        GlyphLabel { text: "cpu \u00B7 68 s" }
+        GlyphLabel { text: "cpu \u00B7 " + (34 * w.pollSec) + " s" }
         Item {
             width: 34 * 5
             height: 8 * 5
@@ -62,13 +66,13 @@ GlyphCard {
                         model: 8
                         Rectangle {
                             required property int index
-                            readonly property int up: 8 - index          // 8 at the top .. 1 at the bottom
+                            readonly property int up: 8 - index
                             width: 3.6
                             height: 3.6
                             radius: 1.8
                             x: 0.7
                             y: index * 5 + 0.7
-                            color: up === sc.h ? GlyphTheme.fg : up < sc.h ? GlyphTheme.grey : GlyphTheme.s2
+                            color: up === sc.h ? w.dotCol : up < sc.h ? GlyphTheme.grey : GlyphTheme.s2
                         }
                     }
                 }
