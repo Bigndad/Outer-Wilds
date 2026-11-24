@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.bak
+*.bak[0-9]
+*.bak-*
+*.pre-*
+*.orig
+*.rej
+*~
+_archive/
+widgets-backups/
+.hypr-compat-backup-*/

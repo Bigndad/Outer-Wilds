@@ -10,9 +10,8 @@ Repo root = the config folder `~/.config/quickshell/outerwilds` (the repo *is* t
 | `qmldir` | **the registry**: every type used by name from another file must be listed here (see the rule below) |
 | `widgets.json` | your saved widget/key/UI settings (only differences from the defaults) |
 | `WIDGETS.md` | how to write a widget (AI-friendly) |
+| `.gitignore` | keeps backups, `__pycache__` and `widgets-backups/` out of git; old backups live outside the repo in `~/outerwilds-backups/` |
 | `bin/ow` | helper command: `start stop restart status log doctor rescan new-widget` |
-| `_archive/` | everything moved out by `tidy.sh`: old backups (`*.bak`, `*.pre-*`, `.hypr-compat-backup-*`), applied `*.patch` history, the unused root `NoctaliaBridge.qml` / `applauncher.qml`, unused shaders and faces, same paths as before. Safe to delete (git history has them) |
-| `Outer Wilds Desktop - Handoff.md` | the first handoff note (1 Nov 2026); **outdated**, use this wiki instead |
 
 ## The registry rule (the one that bites)
 

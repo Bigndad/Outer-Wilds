@@ -36,7 +36,7 @@ Read this before changing anything. The owner uses Gemini and Claude on this pro
 ## How the owner wants work delivered
 
 * **Small patches, not re-uploads.** Token cost matters: prefer `git apply`-able patches (or scripts that patch/regenerate files in
-  place) over full file dumps, and ask only for the specific files you need. Patch history is in the root `ow_*.patch` files.
+  place) over full file dumps, and ask only for the specific files you need. Patch history is in git (`git log -p`); old patch files are archived outside the repo.
   Check the patch applies to a clean clone **plus the earlier patches** before handing it over.
 * For shaders: full drop-in `bake.frag` / `planet.frag` (and `PlanetShader.qml` only if changed) plus a before/after/in-game
   comparison PNG; name the tweak knobs; say if the shader got heavier; the owner rebuilds the `.qsb` and tests on the PC.
