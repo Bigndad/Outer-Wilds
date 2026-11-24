@@ -1,30 +1,15 @@
 pragma Singleton
 import QtQuick
+import "../../.."
 
-// MOCK. Replace `report` with a live source later; field names are Lucid's.
 QtObject {
     id: src
-    property string place: "Mumbai, India"
-    property bool busy: false
-    property string lastError: ""
-    property var report: ({
-        "code": 2, "tempC": 31, "tempF": 88, "feelsC": 35, "feelsF": 95, "humidity": 72,
-        "windKmph": 14, "windMph": 9, "uv": 7, "isDay": Loc.now().getHours() >= 6 && Loc.now().getHours() < 19,
-        "pop": 10, "windDir": "W",
-        "days": [
-            { "date": "", "code": 2, "maxC": 32, "maxF": 90, "minC": 25, "minF": 77, "pop": 10 },
-            { "date": "", "code": 1, "maxC": 33, "maxF": 91, "minC": 25, "minF": 77, "pop": 0 },
-            { "date": "", "code": 61, "maxC": 30, "maxF": 86, "minC": 24, "minF": 75, "pop": 60 },
-            { "date": "", "code": 3, "maxC": 31, "maxF": 88, "minC": 25, "minF": 77, "pop": 30 },
-            { "date": "", "code": 0, "maxC": 33, "maxF": 91, "minC": 26, "minF": 79, "pop": 0 },
-            { "date": "", "code": 80, "maxC": 29, "maxF": 84, "minC": 24, "minF": 75, "pop": 55 }
-        ],
-        "hours": [31, 31, 30, 30, 29, 28, 28, 27, 27, 28, 30, 32, 33, 33, 32, 31, 30, 29, 28].map(function (t, i) {
-            return { "time": "", "code": i > 6 && i < 12 ? 0 : 2, "tempC": t, "tempF": Math.round(t * 1.8 + 32), "pop": 10, "day": i < 5 || i > 12 };
-        })
-    })
+    readonly property string place: WeatherService.place
+    readonly property bool busy: WeatherService.busy
+    readonly property string lastError: WeatherService.error
+    readonly property var report: WeatherService.report
 
-    function ensure() { }
+    function ensure() { if (!WeatherService.ok && !WeatherService.busy) WeatherService.refresh(); }
 
     function kindFor(code, night) {
         if (code === 0 || code === 1) return night ? "clear-night" : "clear";

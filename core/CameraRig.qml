@@ -1353,6 +1353,12 @@ Item {
         }
     }
 
+    // --- 3D INTERACTIVE BUBBLES (above mouseArea so draggable, below WidgetLayer) ---
+    BubbleField3D {
+        anchors.fill: parent
+        rig: root
+    }
+
     // --- ORBITING WIDGETS (above the mouse area so they are clickable) ---
     WidgetLayer {
         anchors.fill: parent

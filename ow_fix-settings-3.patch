@@ -1,0 +1,21 @@
+diff --git a/settings/SettingsPanel.qml b/settings/SettingsPanel.qml
+index 8680fb1..cc29bc6 100644
+--- a/settings/SettingsPanel.qml
++++ b/settings/SettingsPanel.qml
+@@ -55,6 +55,7 @@ Item {
+     readonly property string tab: WidgetConfig.panelTab
+ 
+     property string expandedId: ""
++    onTabChanged: { if (tab !== "widgets" && expandedId !== "") { expandedId = ""; WidgetConfig.previewId = ""; } }
+     property string query: ""
+     property var collapsed: ({})
+     property var optOpen: ({})
+@@ -201,7 +202,7 @@ Item {
+ 
+     function toggleExpand(id) {
+         capturing = ""; keyMsg = "";
+-        if (expandedId === id) { expandedId = ""; WidgetConfig.previewId = ""; }
++        if (expandedId === id && inspectorOpen) { expandedId = ""; WidgetConfig.previewId = ""; }
+         else { expandedId = id; WidgetConfig.previewId = id; inspectorTab = "orbit"; const e = WidgetConfig.entry(id); if (e) lastHost = e.host; }
+     }
+ 

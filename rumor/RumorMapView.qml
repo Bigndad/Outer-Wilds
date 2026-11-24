@@ -50,6 +50,8 @@ Item {
     property bool unreadOnly: false
     property string dismissingId: ""
     property string pendingCursor: ""
+    property bool confirmClearAll: false
+    Timer { id: clearAllTimer; interval: 3000; onTriggered: view.confirmClearAll = false }
     readonly property bool filtering: query !== "" || unreadOnly
     readonly property int matchCount: {
         let c = 0;
@@ -59,6 +61,13 @@ Item {
 
     readonly property var cur: graph.byId[cursorId] !== undefined ? graph.byId[cursorId] : null
     readonly property string curState: cur ? RumorData.stateOfNode(cur) : ""
+    readonly property string curOrderLabel: {
+        if (!cur) return "";
+        const list = orderedNodes();
+        for (let i = 0; i < list.length; i++)
+            if (list[i].id === cur.id) return "#" + (i + 1) + " / " + list.length;
+        return "";
+    }
 
     function sxOf(wx) { return Math.round(vw / 2 + (wx - camX) * ui); }
     function syOf(wy) { return Math.round(vh / 2 + (wy - camY) * ui); }
@@ -195,17 +204,31 @@ Item {
     function pinCur() {
         if (cur && !cur.archive) RumorData.togglePin(cur.id);
     }
+    function requestClearAll() {
+        if (graph.nodes.length === 0) return;
+        if (confirmClearAll) {
+            confirmClearAll = false;
+            clearAllTimer.stop();
+            cursorId = "";
+            query = "";
+            unreadOnly = false;
+            searchOpen = false;
+            RumorData.typing = false;
+            RumorData.clear();
+        } else {
+            confirmClearAll = true;
+            clearAllTimer.restart();
+        }
+    }
     function dismissCur() {
         if (!cur || dismissingId !== "") return;
-        // after the card fades, the cursor moves to its predecessor, else the nearest other card
-        let next = (cur.parent !== "" && graph.byId[cur.parent]) ? cur.parent : "";
-        if (next === "") {
-            let bestD = 1e18;
-            for (let i = 0; i < graph.nodes.length; i++) {
-                const n = graph.nodes[i];
-                if (n === cur) continue;
-                const d = Math.hypot(n.x - cur.x, n.y - cur.y);
-                if (d < bestD) { bestD = d; next = n.id; }
+        const list = orderedNodes();
+        let next = "";
+        for (let i = 0; i < list.length; i++) {
+            if (list[i].id === cur.id) {
+                if (i + 1 < list.length) next = list[i + 1].id;
+                else if (i - 1 >= 0) next = list[i - 1].id;
+                break;
             }
         }
         pendingCursor = next;
@@ -229,31 +252,58 @@ Item {
         explore(id);
     }
 
-    // direction: 0 left, 1 right, 2 up, 3 down. Picks the nearest card in that direction, preferring aligned ones.
-    function moveCursor(direction) {
-        if (graph.nodes.length === 0) return;
-        if (!cur) { cursorId = defaultCursor(); return; }
-        let best = null;
-        let bestScore = 1e18;
+    // Notifications in Ship Log chain/unlock order (thread links first, then app links, oldest -> newest).
+    function orderedNodes() {
+        const children = {};
+        const hasParent = {};
+        for (let i = 0; i < graph.links.length; i++) {
+            const L = graph.links[i];
+            if (!children[L.from]) children[L.from] = [];
+            children[L.from].push(L);
+            hasParent[L.to] = true;
+        }
+        for (const id in children) {
+            children[id].sort((a, b) => {
+                if (a.kind !== b.kind) return a.kind === "thread" ? -1 : 1;
+                const na = graph.byId[a.to], nb = graph.byId[b.to];
+                return (na ? na.time : 0) - (nb ? nb.time : 0);
+            });
+        }
+        const visited = {};
+        const out = [];
+        function walk(id) {
+            if (visited[id]) return;
+            const n = graph.byId[id];
+            if (!n) return;
+            visited[id] = true;
+            if (matches(n)) out.push(n);
+            const ch = children[id];
+            if (ch) {
+                for (let i = 0; i < ch.length; i++) walk(ch[i].to);
+            }
+        }
         for (let i = 0; i < graph.nodes.length; i++) {
             const n = graph.nodes[i];
-            if (n === cur || !matches(n)) continue;
-            const dx = n.x - cur.x;
-            const dy = n.y - cur.y;
-            let along = 0;
-            let perp = 0;
-            if (direction === 0) { along = -dx; perp = Math.abs(dy); }
-            else if (direction === 1) { along = dx; perp = Math.abs(dy); }
-            else if (direction === 2) { along = -dy; perp = Math.abs(dx); }
-            else { along = dy; perp = Math.abs(dx); }
-            if (along <= 8) continue;
-            const score = along + perp * 2.2;
-            if (score < bestScore) { bestScore = score; best = n; }
+            if (!hasParent[n.id]) walk(n.id);
         }
-        if (best) {
-            cursorId = best.id;
-            centerOn(best, true);
-        }
+        for (let i = 0; i < graph.nodes.length; i++) walk(graph.nodes[i].id);
+        return out;
+    }
+
+    // delta: +1 = next notification in order, -1 = previous; wraps around.
+    function stepCursor(delta) {
+        const list = orderedNodes();
+        if (list.length === 0) return;
+        let idx = -1;
+        for (let i = 0; i < list.length; i++)
+            if (list[i].id === cursorId) { idx = i; break; }
+        const nextIdx = idx < 0
+            ? (delta > 0 ? 0 : list.length - 1)
+            : (idx + delta + list.length) % list.length;
+        const target = list[nextIdx];
+        cursorId = target.id;
+        if (!target.archive && RumorData.stateOfNode(target) !== "locked") RumorData.markRead(target.id);
+        centerOn(target, true);
     }
 
     // called by RumorMap.qml for every key press while open; RumorMap accepts the event afterwards (nothing leaks)
@@ -268,13 +318,12 @@ Item {
         // every key here is a Keybinds action (Control Centre > KEYS), so all of them can be changed
         const m = (id) => Keybinds.matches(id, event);
         if (m("backKey")) {
-            if (filtering) { query = ""; unreadOnly = false; }     // first Escape clears the filter, the next one leaves
+            if (confirmClearAll) { confirmClearAll = false; clearAllTimer.stop(); }
+            else if (filtering) { query = ""; unreadOnly = false; }     // first Escape clears the filter, the next one leaves
             else RumorData.hide();
         }
-        else if (m("navLeft")) moveCursor(0);
-        else if (m("navRight")) moveCursor(1);
-        else if (m("navUp")) moveCursor(2);
-        else if (m("navDown")) moveCursor(3);
+        else if (m("navLeft") || m("navUp")) stepCursor(-1);
+        else if (m("navRight") || m("navDown")) stepCursor(1);
         else if (m("select")) explore(cursorId);
         else if (m("fit")) fitView();
         else if (m("zoomIn")) zoomBy(1, vw / 2, vh / 2);
@@ -283,6 +332,7 @@ Item {
         else if (m("unread")) unreadOnly = !unreadOnly;
         else if (m("openApp")) openCur();
         else if (m("pin")) pinCur();
+        else if (m("clearAll")) requestClearAll();
         else if (m("dismiss")) dismissCur();
     }
 
@@ -526,6 +576,7 @@ Item {
             required property var modelData
 
             readonly property bool sel: modelData.id === view.cursorId
+            readonly property bool hov: modelData.id === view.hoverId
             readonly property string st: RumorData.stateOfNode(modelData)     // unread | read | locked
             readonly property real m: view.ui * view.cardScale(modelData.id)
             readonly property bool crit: modelData.urgency === "critical"
@@ -565,14 +616,14 @@ Item {
                 border.width: 1; border.color: "#668A7F66"
             }
 
-            // soft glow behind unread, critical and highlighted cards
+            // soft glow behind unread, critical, hovered and highlighted cards
             Rectangle {
-                visible: card.st === "unread" || card.sel || card.crit
+                visible: card.st === "unread" || card.sel || card.crit || card.hov
                 anchors.fill: parent
                 anchors.margins: -Math.round((card.crit ? 7 : 5) * card.m)
                 radius: Math.round(4 * card.m)
                 color: card.crit && !card.sel ? Qt.rgba(0.89, 0.33, 0.30, 0.24)
-                    : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, card.sel ? 0.22 : 0.13)
+                    : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, card.sel ? 0.24 : (card.hov ? 0.16 : 0.13))
             }
 
             Rectangle {
@@ -580,9 +631,10 @@ Item {
                 color: card.st === "locked" ? "#E6111622" : "#F00A101C"
                 border.width: card.bw
                 border.color: card.sel ? view.cGold
+                    : (card.hov ? view.cCream
                     : (card.crit ? "#E2554C"
                     : card.st === "locked" ? "#556E84A3"
-                    : (card.st === "unread" ? card.rc : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, 0.55)))
+                    : (card.st === "unread" ? card.rc : Qt.rgba(card.rc.r, card.rc.g, card.rc.b, 0.55))))
             }
 
             // coloured header band with the title (Outer Wilds Ship Log card top)
@@ -740,14 +792,14 @@ Item {
             font.letterSpacing: 2 * view.baseUi
         }
         Text {
-            text: "ARROWS select   ENTER read   DRAG pan   WHEEL zoom   HOME fit"
+            text: "ARROWS next / prev   ENTER read   DRAG pan   WHEEL zoom   HOME fit"
             color: "#AA8A7F66"
             font.family: "monospace"
             font.pixelSize: Math.max(8, Math.round(10 * view.baseUi))
             font.letterSpacing: 1 * view.baseUi
         }
         Text {
-            text: "O open   P pin   X dismiss   / search   U unread only"
+            text: "O open   P pin   X dismiss   " + (Keybinds.pretty(Keybinds.seq("clearAll")) || "SHIFT+X") + " clear all   / search   U unread"
             color: "#AA8A7F66"
             font.family: "monospace"
             font.pixelSize: Math.max(8, Math.round(10 * view.baseUi))
@@ -785,6 +837,8 @@ Item {
         property string label: ""
         property string keyName: ""
         property bool clickable: false
+        property bool danger: false
+        readonly property color accent: danger ? "#E2554C" : view.cGold
         signal clicked()
         width: row.width
         height: row.height
@@ -793,9 +847,10 @@ Item {
             spacing: Math.round(8 * view.baseUi)
             Text {
                 text: chip.label
-                color: view.cCream
+                color: chip.danger ? "#E2554C" : (chipMa.containsMouse ? view.cGold : view.cCream)
                 anchors.verticalCenter: parent.verticalCenter
                 font.family: "monospace"
+                font.bold: chip.danger
                 font.pixelSize: Math.max(8, Math.round(12 * view.baseUi))
                 font.letterSpacing: 2 * view.baseUi
             }
@@ -803,20 +858,22 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: keyText.width + Math.round(14 * view.baseUi)
                 height: keyText.height + Math.round(8 * view.baseUi)
-                color: "#E007080C"
-                border.color: view.cGold
+                radius: Math.round(2 * view.baseUi)
+                color: chip.danger ? "#33E2554C" : (chipMa.containsMouse ? "#28D4AF37" : "#E007080C")
+                border.color: chip.accent
                 border.width: Math.max(1, Math.round(view.baseUi))
                 Text {
                     id: keyText
                     anchors.centerIn: parent
                     text: chip.keyName
-                    color: view.cGold
+                    color: chip.accent
                     font.family: "monospace"
                     font.pixelSize: Math.max(8, Math.round(11 * view.baseUi))
                 }
             }
         }
         MouseArea {
+            id: chipMa
             anchors.fill: parent
             enabled: chip.clickable
             hoverEnabled: true
@@ -831,7 +888,15 @@ Item {
         anchors.right: parent.right
         anchors.topMargin: Math.round(38 * view.baseUi)
         anchors.rightMargin: Math.round(40 * view.baseUi)
-        spacing: Math.round(30 * view.baseUi)
+        spacing: Math.round(28 * view.baseUi)
+        KeyChip {
+            visible: view.graph.nodes.length > 0
+            label: view.confirmClearAll ? "CONFIRM CLEAR" : "CLEAR ALL"
+            keyName: Keybinds.pretty(Keybinds.seq("clearAll")) || "SHIFT+X"
+            danger: view.confirmClearAll
+            clickable: true
+            onClicked: view.requestClearAll()
+        }
         KeyChip { label: "ZOOM VIEW"; keyName: "WHEEL" }
         KeyChip {
             label: "LEAVE SHIP LOG"
@@ -907,7 +972,7 @@ Item {
                 id: dSummary
                 anchors.left: parent.left
                 anchors.leftMargin: parent.textLeft
-                anchors.right: dTime.left
+                anchors.right: dMeta.left
                 anchors.rightMargin: Math.round(12 * view.baseUi)
                 text: view.cur ? (parent.locked ? "???" : view.cur.summary) : ""
                 elide: Text.ElideRight
@@ -916,14 +981,26 @@ Item {
                 font.bold: true
                 font.pixelSize: Math.max(9, Math.round(15 * view.baseUi))
             }
-            Text {
-                id: dTime
+            Row {
+                id: dMeta
                 anchors.right: parent.right
                 anchors.verticalCenter: dSummary.verticalCenter
-                text: view.cur && !parent.locked ? RumorData.formatTime(view.cur.time) : ""
-                color: view.cDim
-                font.family: "monospace"
-                font.pixelSize: Math.max(8, Math.round(11 * view.baseUi))
+                spacing: Math.round(10 * view.baseUi)
+                Text {
+                    visible: view.curOrderLabel !== ""
+                    text: view.curOrderLabel
+                    color: view.cGold
+                    font.family: "monospace"
+                    font.bold: true
+                    font.pixelSize: Math.max(8, Math.round(11 * view.baseUi))
+                }
+                Text {
+                    id: dTime
+                    text: view.cur && !dMeta.parent.locked ? RumorData.formatTime(view.cur.time) : ""
+                    color: view.cDim
+                    font.family: "monospace"
+                    font.pixelSize: Math.max(8, Math.round(11 * view.baseUi))
+                }
             }
             Text {
                 anchors.left: parent.left

@@ -152,7 +152,7 @@ Scope {
         function onPinnedIdsChanged()     { if (root._logReady) logSave.restart(); }
         function onOpenRequested(n) {
             const script = Qt.resolvedUrl("open_notif.py").toString().replace(/^file:\/\//, "");
-            Quickshell.execDetached(["python3", script, String(n.appId || ""), String(n.app || ""), String(n.image || "")]);
+            Quickshell.execDetached(["python3", script, String(n.appId || ""), String(n.app || ""), String(n.image || ""), String(n.summary || ""), String(n.body || "")]);
             RumorData.hide();
         }
     }

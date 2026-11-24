@@ -54,3 +54,6 @@ KeyHost 1.0 core/KeyHost.qml
 singleton Keybinds 1.0 data/Keybinds.qml
 BubbleWindow 1.0 widgets/serp/panels/BubbleWindow.qml
 NetworkWindow 1.0 widgets/serp/panels/NetworkWindow.qml
+singleton WeatherService 1.0 data/WeatherService.qml
+singleton BubbleState 1.0 data/BubbleState.qml
+BubbleField3D 1.0 core/BubbleField3D.qml

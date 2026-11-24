@@ -24,15 +24,31 @@ Item {
     // the overlays handle their own keys while they are up (the map's E = edit widgets); never type-trigger while a text field is active
     readonly property bool free: !MapData.open && !RumorData.open && !RumorData.typing && !WidgetConfig.widgetTyping
 
+    Timer {
+        id: tabReleaseTimer
+        interval: 750
+        onTriggered: WidgetConfig.tabHeld = false
+    }
+    Shortcut {
+        sequence: "Tab"
+        enabled: host.free && !WidgetConfig.panelOpen
+        autoRepeat: true
+        onActivated: {
+            WidgetConfig.tabHeld = true;
+            tabReleaseTimer.restart();
+        }
+    }
+    onFreeChanged: if (!free) { tabReleaseTimer.stop(); WidgetConfig.tabHeld = false; }
+
     Shortcut {
         sequence: Keybinds.seq("edit")
-        enabled: host.free
+        enabled: host.free && !WidgetConfig.panelOpen
         autoRepeat: false
         onActivated: WidgetConfig.panelOpen = !WidgetConfig.panelOpen
     }
     Shortcut {
         sequence: Keybinds.seq("keys")
-        enabled: !RumorData.typing && !WidgetConfig.widgetTyping
+        enabled: !RumorData.typing && !WidgetConfig.widgetTyping && !WidgetConfig.panelOpen
         autoRepeat: false
         onActivated: {
             if (WidgetConfig.panelOpen && WidgetConfig.panelTab === "keys") { WidgetConfig.panelOpen = false; return; }

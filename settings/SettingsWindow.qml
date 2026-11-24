@@ -126,9 +126,15 @@ Scope {
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "outerwilds-settings"
-        WlrLayershell.keyboardFocus: (WidgetConfig.panelOpen && !root.dialogOpen) ? (panel.capturing !== "" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.OnDemand) : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: (WidgetConfig.panelOpen && !root.dialogOpen) ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
         anchors { top: true; bottom: true; right: true }
-        implicitWidth: panel.inspectorShown ? 810 : 420
+        // Fixed width: resizing a layer-shell surface every time the inspector opens/closes made the whole
+        // panel re-configure and flicker. The transparent part is made click-through by the mask below.
+        implicitWidth: 810
+        mask: Region {
+            item: panel.mainPanelItem
+            Region { item: panel.inspectorHitItem }
+        }
 
         SettingsPanel {
             id: panel

@@ -40,21 +40,30 @@ Scope {
     function publish() {
         const ps = _list();
         const out = [];
+        let mediaBest = null;
         for (let i = 0; i < ps.length; i++) {
             const p = ps[i];
             const vs = !!p.volumeSupported;
+            const playing = !!p.isPlaying;
+            const len = Number(p.length) || 0;
+            const pos = Number(p.position) || 0;
+            if (!mediaBest || (playing && !mediaBest.playing) || (playing === mediaBest.playing && len > 0 && mediaBest.len <= 0)) {
+                mediaBest = { pos: pos, len: len, playing: playing };
+            }
             out.push({
                 id: _id(p, i),
                 identity: String(p.identity || "").toLowerCase(),
                 name: String(p.identity || "UNKNOWN").toUpperCase(),
                 title: String(p.trackTitle || ""),
                 artist: String(p.trackArtist || ""),
-                playing: !!p.isPlaying,
+                playing: playing,
                 volume: vs ? p.volume : 1,
                 muted: vs && p.volume < 0.001
             });
         }
         SignalscopeData.setChannels(out);
+        if (mediaBest) WidgetConfig.setMediaProgress(mediaBest.pos, mediaBest.len, mediaBest.playing);
+        else WidgetConfig.setMediaProgress(0, 0, false);
     }
 
     // ---- backend interface used by SignalscopeData.dispatch ----
@@ -79,7 +88,7 @@ Scope {
 
     // players come and go, so poll: fast while the scope is up, lazy otherwise
     Timer {
-        interval: SignalscopeData.equipped ? 400 : 2500
+        interval: SignalscopeData.equipped ? 400 : (WidgetConfig.pinnedCount > 0 ? 1200 : 2500)
         running: true
         repeat: true
         onTriggered: root.publish()

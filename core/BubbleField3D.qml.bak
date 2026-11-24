@@ -1,0 +1,1177 @@
+import QtQuick
+import QtQuick.Shapes
+import ".."
+
+// True 3D interactive bubble cluster inside CameraRig's solar system.
+// Analytic 3D GLSL spheres (shaders/bubble_sphere.frag.qsb), loose zero-G cluster gravity,
+// right-side quick metric toggles, and slide-in Outer-Wilds-themed detail panel.
+Item {
+    id: root
+    property var rig: null
+    z: 28500
+    visible: BubbleState.open && rig !== null && rig.active
+
+    // Cluster anchor in 3D world space
+    property real anchorX: 0
+    property real anchorY: 1600
+    property real anchorZ: 3800
+    property bool anchored: false
+
+    // Physics state
+    property var nodes: []
+    property var nodeMap: ({})
+    property string dragId: ""
+    property real dragDepth: 300
+    property string selectedId: ""
+    property var info: null
+    property int swapDir: 1
+    property real openProg: selectedId !== "" ? 1.0 : 0.0
+    Behavior on openProg { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+
+    // Live metrics & history buffers for charts
+    property var lastSnap: null
+    property var cores: []
+    property var cpuHist: []
+    property var tempHist: []
+    property var netUpHist: []
+    property var netDownHist: []
+    property var diskReadHist: []
+    property var diskWriteHist: []
+    property real vAvg: 0
+    property real vTemp: 50
+    property real vAppsGB: 0
+    property real vCacheGB: 0
+    property real vMem: 0
+    property real vTotal: 8
+    property real vDisk: 0
+    property real vNetDown: 0
+    property real vNetUp: 0
+    property real vDiskR: 0
+    property real vDiskW: 0
+
+    ListModel { id: bubbleModel }
+    property var itemMap: ({})
+
+    // Outer Wilds palette
+    readonly property color cBg: "#EE070911"
+    readonly property color cCard: "#0D1322"
+    readonly property color cGold: "#D4AF37"
+    readonly property color cCream: "#E6D5B8"
+    readonly property color cDim: "#8A7F66"
+    readonly property color cOff: "#4A4536"
+    readonly property color cLine: "#33D4AF37"
+    readonly property color cAccent: "#B4A0FF"
+    readonly property color cHot: "#D9694A"
+    readonly property color cWarm: "#E8B949"
+    readonly property color cSky: "#74B8E8"
+    readonly property color cMint: "#64C9A8"
+    readonly property color cPanel: "#131A2A"
+    readonly property string fMono: "monospace"
+
+    Component.onCompleted: {
+        cpuHist = new Array(48).fill(0);
+        tempHist = new Array(48).fill(50);
+        netUpHist = new Array(40).fill(0);
+        netDownHist = new Array(40).fill(0);
+        diskReadHist = new Array(40).fill(0);
+        diskWriteHist = new Array(40).fill(0);
+    }
+
+    function fmtMem(mb) {
+        if (mb >= 1024) return (mb / 1024).toFixed(1) + " GB";
+        return Math.round(mb) + " MB";
+    }
+    function one(v) { return Number(v || 0).toFixed(v < 10 ? 1 : 0); }
+
+    function metricColor(k) {
+        if (k === "cpu") return cGold;
+        if (k === "mem") return cCream;
+        if (k === "temp") return cHot;
+        if (k === "disk") return cMint;
+        return cSky;
+    }
+
+    function dialFrac(k) {
+        const v = k === "cpu" ? vAvg / 100
+                : k === "mem" ? vMem / Math.max(1, vTotal)
+                : k === "temp" ? (vTemp - 30) / 70
+                : k === "disk" ? vDisk
+                : vNetDown / 120;
+        return Math.max(0.02, Math.min(1.0, v));
+    }
+
+    function dialText(k) {
+        if (k === "cpu") return Math.round(vAvg) + "%";
+        if (k === "mem") return vMem.toFixed(1) + "G";
+        if (k === "temp") return Math.round(vTemp) + "°";
+        if (k === "disk") return Math.round(vDisk * 100) + "%";
+        return vNetDown.toFixed(0) + "M";
+    }
+
+    function procRadius(cpu) {
+        return Math.max(6.5, Math.min(16.0, 6.8 + Math.sqrt(Math.max(0, cpu)) * 1.1));
+    }
+
+    function placeAnchorInFront() {
+        if (!rig) return;
+        const fwdX = -Math.sin(rig.camYaw) * Math.cos(rig.camPitch);
+        const fwdY = Math.sin(rig.camPitch);
+        const fwdZ = -Math.cos(rig.camYaw) * Math.cos(rig.camPitch);
+        let ax = rig.camX + fwdX * 330;
+        let ay = rig.camY + fwdY * 330;
+        let az = rig.camZ + fwdZ * 330;
+
+        const dSun = Math.hypot(ax, ay, az) || 1.0;
+        const minSun = Math.max(600, rig.sunRadius + 280);
+        if (dSun < minSun) {
+            const q = minSun / dSun;
+            ax *= q; ay *= q; az *= q;
+        }
+        const dx = ax - anchorX, dy = ay - anchorY, dz = az - anchorZ;
+        anchorX = ax; anchorY = ay; anchorZ = az;
+        if (anchored) {
+            for (let i = 0; i < nodes.length; i++) {
+                nodes[i].x += dx; nodes[i].y += dy; nodes[i].z += dz;
+            }
+        }
+        anchored = true;
+    }
+
+    function addNode(props) {
+        const th = Math.random() * Math.PI * 2;
+        const u = Math.random() * 2 - 1;
+        const sr = Math.sqrt(Math.max(0, 1 - u * u));
+        const dist = 42 + Math.random() * 92;
+        const n = Object.assign({
+            x: anchorX + dist * sr * Math.cos(th),
+            y: anchorY + dist * u,
+            z: anchorZ + dist * sr * Math.sin(th),
+            vx: (Math.random() - 0.5) * 18,
+            vy: (Math.random() - 0.5) * 18,
+            vz: (Math.random() - 0.5) * 18,
+            r: props.rT || 10,
+            rT: props.rT || 10,
+            sq: 0,
+            seed: Math.random() * 100,
+            cpu: 0, cpuT: 0, memMB: 0,
+            hist: new Array(32).fill(0),
+            dying: false
+        }, props);
+        nodes.push(n);
+        nodeMap[n.id] = n;
+        bubbleModel.append({ nid: n.id });
+        return n;
+    }
+
+    function seedMetrics() {
+        const defs = [
+            { id: "cpu",  type: "metric", key: "cpu",  name: "CPU",     rT: 14.5 },
+            { id: "mem",  type: "metric", key: "mem",  name: "Memory",  rT: 13.0 },
+            { id: "temp", type: "metric", key: "temp", name: "Thermal", rT: 12.0 },
+            { id: "net",  type: "metric", key: "net",  name: "Network", rT: 11.5 },
+            { id: "disk", type: "metric", key: "disk", name: "Disk",    rT: 11.5 }
+        ];
+        for (let i = 0; i < defs.length; i++) {
+            if (!nodeMap[defs[i].id]) addNode(defs[i]);
+        }
+    }
+
+    function openById(id, dir) {
+        if (!id || !nodeMap[id]) return;
+        if (selectedId === id) {
+            selectedId = "";
+            info = null;
+            return;
+        }
+        swapDir = dir || 1;
+        selectedId = id;
+        rebuildInfo();
+    }
+
+    function applySnapshot(snap) {
+        if (!snap) return;
+        const first = !lastSnap;
+        lastSnap = snap;
+        const cArr = (snap.cpu && snap.cpu.cores) ? snap.cpu.cores : [];
+        if (cArr.length) {
+            cores = cArr.slice();
+            vAvg = cArr.reduce((a, b) => a + b, 0) / cArr.length;
+        }
+        if (snap.tempC !== undefined) vTemp = Number(snap.tempC);
+        if (snap.mem) {
+            vAppsGB = Number(snap.mem.appsGB || 0);
+            vCacheGB = Number(snap.mem.cacheGB || 0);
+            vMem = vAppsGB + vCacheGB * 0.25;
+            vTotal = Number(snap.mem.totalExactGB || snap.mem.totalGB || 8);
+        }
+        if (snap.net) {
+            vNetDown = Number(snap.net.downMBs || 0);
+            vNetUp = Number(snap.net.upMBs || 0);
+        }
+        if (snap.disk) {
+            vDiskR = Number(snap.disk.readMBs || 0);
+            vDiskW = Number(snap.disk.writeMBs || 0);
+            if (snap.disk.drives) {
+                const used = snap.disk.drives.reduce((a, d) => a + d.usedGB, 0);
+                const tot = snap.disk.drives.reduce((a, d) => a + d.totalGB, 0);
+                vDisk = tot > 0 ? used / tot : 0;
+            }
+        }
+
+        function pushH(arr, v, fillAll) {
+            const copy = arr.slice();
+            if (fillAll) copy.fill(v);
+            else { copy.push(v); copy.shift(); }
+            return copy;
+        }
+        cpuHist = pushH(cpuHist, vAvg, first);
+        tempHist = pushH(tempHist, vTemp, first);
+        netUpHist = pushH(netUpHist, vNetUp, first);
+        netDownHist = pushH(netDownHist, vNetDown, first);
+        diskReadHist = pushH(diskReadHist, vDiskR, first);
+        diskWriteHist = pushH(diskWriteHist, vDiskW, first);
+
+        const showProcs = BubbleState.mode === "procs" || BubbleState.mode === "both";
+        const showApps  = BubbleState.mode === "apps"  || BubbleState.mode === "both";
+        const seen = {};
+
+        if (showProcs && snap.procs) {
+            const top = snap.procs.slice().sort((a, b) => b.cpu - a.cpu).slice(0, 10);
+            for (let i = 0; i < top.length; i++) {
+                const p = top[i];
+                const id = "p" + p.pid;
+                seen[id] = true;
+                let n = nodeMap[id];
+                if (!n) n = addNode({ id: id, type: "proc", pid: p.pid, name: p.name, rT: procRadius(p.cpu), hist: new Array(32).fill(p.cpu || 0) });
+                n.dying = false;
+                n.name = p.name; n.user = p.user; n.memMB = p.memMB || 0;
+                n.state = p.state; n.threads = p.threads; n.cpuT = p.cpu || 0;
+                n.cpuSec = p.cpuSec; n.readMB = p.readMB; n.writeMB = p.writeMB;
+                n.rT = procRadius(n.cpuT);
+                n.hist.push(n.cpuT); n.hist.shift();
+            }
+        }
+        if (showApps && snap.apps) {
+            const apps = snap.apps.slice(0, 8);
+            for (let i = 0; i < apps.length; i++) {
+                const a = apps[i];
+                const id = "a" + a.cls;
+                seen[id] = true;
+                let n = nodeMap[id];
+                if (!n) n = addNode({ id: id, type: "group", cls: a.cls, name: a.name, rT: procRadius(a.cpu), hist: new Array(32).fill(a.cpu || 0) });
+                n.dying = false;
+                n.name = a.name; n.memMB = a.memMB || 0; n.windows = a.windows || 0;
+                n.ws = a.ws || []; n.titles = a.titles || []; n.procs = a.procs || [];
+                n.procCount = a.procCount || 0; n.cpuT = a.cpu || 0;
+                n.rT = procRadius(n.cpuT);
+                n.hist.push(n.cpuT); n.hist.shift();
+            }
+        }
+
+        for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            if (n.type !== "metric" && !seen[n.id] && n.id !== selectedId && n.id !== dragId) {
+                n.dying = true;
+            }
+        }
+        if (selectedId !== "") rebuildInfo();
+    }
+
+    function rebuildInfo() {
+        const n = nodeMap[selectedId];
+        if (!n) { info = null; return; }
+        const snap = lastSnap || {
+            cpu: { threads: cores.length, model: "", freqGHz: 0, procCount: 0 },
+            mem: { swapGB: 0, swapTotalGB: 0, freeGB: 0 },
+            net: { iface: "", sentGB: 0, recvGB: 0 },
+            disk: { readGB: 0, writtenGB: 0, drives: [] },
+            sensors: []
+        };
+        const kind = n.type === "metric" ? n.key : (n.type === "group" ? "group" : "app");
+        const color = n.type === "metric" ? metricColor(n.key) : (n.type === "group" ? cCream : cGold);
+        const liveProcs = nodes.filter(x => x.type === "proc" && !x.dying);
+        const sensors = snap.sensors || [];
+        const disk = snap.disk || { readGB: 0, writtenGB: 0, drives: [] };
+        const memFree = snap.mem && snap.mem.freeGB !== undefined ? snap.mem.freeGB : Math.max(0, vTotal - vAppsGB - vCacheGB);
+
+        const d = {
+            id: n.id, kind: kind, color: color, title: n.name || "", sub: "", num: "", unit: "",
+            facts: [], list: null, list2: null,
+            hist: cpuHist.slice(), cores: cores.slice(),
+            memApps: vAppsGB, memCache: vCacheGB, memFree: memFree,
+            io: null, legend: null
+        };
+
+        if (kind === "cpu") {
+            const mdl = String(snap.cpu.model || "").replace(/\(R\)|\(TM\)|CPU |@.*$/g, "").replace(/\s+/g, " ").trim();
+            d.sub = (mdl ? mdl + " · " : "") + (snap.cpu.threads || cores.length) + " threads";
+            d.num = String(Math.round(vAvg)); d.unit = "%";
+            d.facts = [
+                { lbl: "Clock", val: Number(snap.cpu.freqGHz || 0).toFixed(2) + " GHz" },
+                { lbl: "Peak (1m)", val: Math.round(Math.max(0, ...cpuHist)) + "%" },
+                { lbl: "Processes", val: String(snap.cpu.procCount || 0) },
+                { lbl: "Busy threads", val: cores.filter(x => x > 50).length + " / " + cores.length }
+            ];
+            d.list = {
+                title: "TOP PROCESSES",
+                rows: liveProcs.slice().sort((a, b) => b.cpu - a.cpu).slice(0, 6).map(p => ({
+                    id: p.id, name: p.name, val: one(p.cpu) + "%", frac: Math.min(1, p.cpu / 100)
+                }))
+            };
+        } else if (kind === "mem") {
+            d.sub = vTotal.toFixed(1) + " GB installed";
+            d.num = vMem.toFixed(1); d.unit = "GB";
+            d.facts = [
+                { lbl: "In use", val: Math.round(vMem / Math.max(1, vTotal) * 100) + "%" },
+                { lbl: "Swap", val: Number(snap.mem.swapGB || 0).toFixed(1) + " / " + Number(snap.mem.swapTotalGB || 0).toFixed(1) + " GB" }
+            ];
+            const topM = liveProcs.slice().sort((a, b) => b.memMB - a.memMB).slice(0, 6);
+            const mx = topM.length ? Math.max(1, topM[0].memMB) : 1;
+            d.list = {
+                title: "TOP MEMORY",
+                rows: topM.map(p => ({ id: p.id, name: p.name, val: fmtMem(p.memMB), frac: p.memMB / mx }))
+            };
+        } else if (kind === "temp") {
+            d.sub = vTemp > 80 ? "Hot" : vTemp > 65 ? "Warm" : "Cool";
+            d.num = String(Math.round(vTemp)); d.unit = "°C";
+            const coreTemps = sensors.filter(x => String(x.label || "").startsWith("Core"));
+            const hottest = coreTemps.length ? Math.max(...coreTemps.map(x => x.c)) : vTemp;
+            const avgT = tempHist.reduce((a, b) => a + b, 0) / Math.max(1, tempHist.length);
+            d.facts = [
+                { lbl: "Peak (1m)", val: Math.round(Math.max(0, ...tempHist)) + "°C" },
+                { lbl: "Average", val: Math.round(avgT) + "°C" },
+                { lbl: "Hottest core", val: Math.round(hottest) + "°C" },
+                { lbl: "Sensors", val: String(sensors.length) }
+            ];
+            d.list = {
+                title: "SENSORS",
+                rows: sensors.slice(0, 6).map(x => ({ name: x.label, val: Math.round(x.c) + "°C", frac: Math.max(0, Math.min(1, (x.c - 20) / 80)) }))
+            };
+        } else if (kind === "net") {
+            d.sub = (snap.net && snap.net.iface) ? snap.net.iface : "network";
+            d.num = one(vNetDown); d.unit = "MB/s down";
+            d.legend = ["Up", "Down"];
+            d.io = { up: netUpHist.slice(), down: netDownHist.slice() };
+            d.facts = [
+                { lbl: "Down", val: one(vNetDown) + " MB/s" },
+                { lbl: "Up", val: one(vNetUp) + " MB/s" },
+                { lbl: "Total recv", val: Number(snap.net.recvGB || 0).toFixed(2) + " GB" },
+                { lbl: "Total sent", val: Number(snap.net.sentGB || 0).toFixed(2) + " GB" }
+            ];
+        } else if (kind === "disk") {
+            const used = disk.drives.reduce((a, x) => a + x.usedGB, 0);
+            const tot = disk.drives.reduce((a, x) => a + x.totalGB, 0);
+            d.sub = Math.round(used) + " of " + Math.round(tot) + " GB";
+            d.num = String(Math.round(vDisk * 100)); d.unit = "% used";
+            d.legend = ["Read", "Write"];
+            d.io = { up: diskReadHist.slice(), down: diskWriteHist.slice() };
+            d.facts = [
+                { lbl: "Read", val: one(vDiskR) + " MB/s" },
+                { lbl: "Write", val: one(vDiskW) + " MB/s" },
+                { lbl: "Total read", val: Number(disk.readGB || 0).toFixed(1) + " GB" },
+                { lbl: "Total write", val: Number(disk.writtenGB || 0).toFixed(1) + " GB" }
+            ];
+            d.list = {
+                title: "DRIVES",
+                rows: disk.drives.map(x => ({
+                    name: x.mount, val: Math.round(x.usedGB) + " / " + Math.round(x.totalGB) + " GB",
+                    frac: x.usedGB / Math.max(1, x.totalGB)
+                }))
+            };
+        } else if (kind === "app") {
+            d.sub = "PID " + n.pid + (n.user ? " · " + n.user : "");
+            d.num = one(n.cpu); d.unit = "% CPU";
+            d.hist = (n.hist || []).slice();
+            d.facts = [
+                { lbl: "Memory", val: fmtMem(n.memMB) },
+                { lbl: "State", val: n.cpu > 5 ? "Running" : "Sleeping" },
+                { lbl: "Threads", val: String(n.threads || "—") },
+                { lbl: "Disk R/W", val: (n.readMB !== undefined ? fmtMem(n.readMB) : "—") }
+            ];
+        } else if (kind === "group") {
+            d.sub = (n.windows || 0) + (n.windows === 1 ? " window" : " windows") + (n.ws && n.ws.length ? " · ws " + n.ws.join(", ") : "");
+            d.num = one(n.cpu); d.unit = "% CPU";
+            d.hist = (n.hist || []).slice();
+            d.facts = [
+                { lbl: "Memory", val: fmtMem(n.memMB) },
+                { lbl: "Processes", val: String(n.procCount || 0) }
+            ];
+            const ps = n.procs || [];
+            const mx = Math.max(1, ...ps.map(p => p.memMB || 0));
+            d.list2 = (n.titles && n.titles.length) ? { title: "WINDOWS", rows: n.titles.slice(0, 4).map(t => ({ name: t || "Untitled" })) } : null;
+            d.list = ps.length ? {
+                title: "PROCESSES",
+                rows: ps.slice(0, 5).map(p => ({
+                    id: nodeMap["p" + p.pid] ? ("p" + p.pid) : "",
+                    name: p.name, val: fmtMem(p.memMB) + " · " + one(p.cpu) + "%", frac: (p.memMB || 0) / mx
+                }))
+            } : null;
+        }
+        info = d;
+    }
+
+    function stepAndProject(dt) {
+        if (!rig || !BubbleState.open) return;
+        const tNow = rig.loopTime;
+        const coreR = 95.0;          // wide low-gravity zone so bubbles drift freely
+        const maxClusterR = 230.0;   // gentle outer leash so nothing gets lost or hits the Sun
+        const damp = Math.pow(0.62, dt);
+        const minSun = Math.max(460, rig.sunRadius + 150);
+
+        for (let i = nodes.length - 1; i >= 0; i--) {
+            const n = nodes[i];
+            const targetR = n.dying ? 0.0 : n.rT;
+            n.r += (targetR - n.r) * Math.min(1, 6.0 * dt);
+            n.cpu += (n.cpuT - n.cpu) * Math.min(1, 5.0 * dt);
+            n.sq *= Math.pow(0.03, dt);
+
+            if (n.dying && n.r < 0.6) {
+                delete nodeMap[n.id];
+                nodes.splice(i, 1);
+                for (let m = bubbleModel.count - 1; m >= 0; m--) {
+                    if (bubbleModel.get(m).nid === n.id) { bubbleModel.remove(m); break; }
+                }
+                continue;
+            }
+            if (n.id === dragId) continue;
+
+            const dx = n.x - anchorX;
+            const dy = n.y - anchorY;
+            const dz = n.z - anchorZ;
+            const dist = Math.hypot(dx, dy, dz) || 0.001;
+
+            // Very light micro-gravity inside coreR, gentle pull outside
+            const kPull = dist > coreR ? 0.28 : 0.05;
+            let ax = -dx * kPull;
+            let ay = -dy * kPull;
+            let az = -dz * kPull;
+
+            if (dist > maxClusterR) {
+                const over = dist - maxClusterR;
+                const nx = dx / dist, ny = dy / dist, nz = dz / dist;
+                ax -= nx * over * 1.9;
+                ay -= ny * over * 1.9;
+                az -= nz * over * 1.9;
+                const vOut = n.vx * nx + n.vy * ny + n.vz * nz;
+                if (vOut > 0) {
+                    const bleed = Math.min(1, 2.2 * dt);
+                    n.vx -= nx * vOut * bleed;
+                    n.vy -= ny * vOut * bleed;
+                    n.vz -= nz * vOut * bleed;
+                }
+            }
+
+            // Soft zero-G drift
+            ax += Math.sin(tNow * 0.45 + n.seed) * 4.5;
+            ay += Math.cos(tNow * 0.38 + n.seed * 1.3) * 4.5;
+            az += Math.sin(tNow * 0.32 + n.seed * 1.7) * 4.5;
+
+            n.vx = (n.vx + ax * dt) * damp;
+            n.vy = (n.vy + ay * dt) * damp;
+            n.vz = (n.vz + az * dt) * damp;
+
+            const spd = Math.hypot(n.vx, n.vy, n.vz);
+            if (spd > 200) {
+                const s = 200 / spd;
+                n.vx *= s; n.vy *= s; n.vz *= s;
+            }
+
+            n.x += n.vx * dt;
+            n.y += n.vy * dt;
+            n.z += n.vz * dt;
+
+            const dSun = Math.hypot(n.x, n.y, n.z) || 1.0;
+            if (dSun < minSun) {
+                const q = minSun / dSun;
+                n.x *= q; n.y *= q; n.z *= q;
+            }
+        }
+
+        // Pairwise 3D sphere-sphere collisions
+        for (let i = 0; i < nodes.length; i++) {
+            const a = nodes[i];
+            for (let j = i + 1; j < nodes.length; j++) {
+                const b = nodes[j];
+                const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+                const d = Math.hypot(dx, dy, dz) || 0.001;
+                const minD = a.r + b.r + 3.5;
+                if (d < minD) {
+                    const nx = dx / d, ny = dy / d, nz = dz / d;
+                    const pen = (minD - d) * 0.5;
+                    if (a.id !== dragId) { a.x -= nx * pen; a.y -= ny * pen; a.z -= nz * pen; }
+                    if (b.id !== dragId) { b.x += nx * pen; b.y += ny * pen; b.z += nz * pen; }
+                    const rvx = b.vx - a.vx, rvy = b.vy - a.vy, rvz = b.vz - a.vz;
+                    const vn = rvx * nx + rvy * ny + rvz * nz;
+                    if (vn < 0) {
+                        const imp = -0.82 * vn;
+                        if (a.id !== dragId) { a.vx -= nx * imp; a.vy -= ny * imp; a.vz -= nz * imp; }
+                        if (b.id !== dragId) { b.vx += nx * imp; b.vy += ny * imp; b.vz += nz * imp; }
+                        const sqAmt = Math.min(0.16, Math.abs(vn) * 0.0025);
+                        a.sq = Math.max(a.sq, sqAmt);
+                        b.sq = Math.max(b.sq, sqAmt);
+                    }
+                }
+            }
+        }
+
+        // Project through CameraRig
+        const w = root.width, h = root.height;
+        const halfW = w * 0.5, halfH = h * 0.5;
+        const fov = Math.min(w, h) * 0.95;
+
+        for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            const it = itemMap[n.id];
+            if (!it) continue;
+            const p = rig.project3D(n.x, n.y, n.z, halfW, halfH, fov);
+            if (!p || p.depth <= 6.0 || n.r < 0.8) {
+                it.visible = false;
+                continue;
+            }
+            const sr = n.r * p.scale;
+            if (sr < 2.0 || p.sx < -sr - 40 || p.sx > w + sr + 40 || p.sy < -sr - 40 || p.sy > h + sr + 40) {
+                it.visible = false;
+                continue;
+            }
+            const sunDir = rig.dirToViewSpace(-n.x, -n.y, -n.z, tNow);
+            it.sync(n, p.sx, p.sy, sr, p.depth, sunDir);
+        }
+    }
+
+    Connections {
+        target: BubbleState
+        function onOpenChanged() {
+            if (BubbleState.open) {
+                root.placeAnchorInFront();
+                root.seedMetrics();
+                if (BubbleState.snap) root.applySnapshot(BubbleState.snap);
+            } else {
+                root.selectedId = "";
+                root.info = null;
+                root.dragId = "";
+            }
+        }
+        function onSnapSeqChanged() {
+            if (BubbleState.open) root.applySnapshot(BubbleState.snap);
+        }
+        function onModeChanged() {
+            if (BubbleState.open && BubbleState.snap) root.applySnapshot(BubbleState.snap);
+        }
+        function onRecenterSeqChanged() {
+            if (BubbleState.open) root.placeAnchorInFront();
+        }
+    }
+
+    Connections {
+        target: root.rig
+        function onFrameUpdated() {
+            if (root.visible) root.stepAndProject(root.rig.lastDt);
+        }
+    }
+
+    // ---------- 3D Analytic-Sphere Bubbles ----------
+    Repeater {
+        model: bubbleModel
+        delegate: Item {
+            id: bItem
+            required property string nid
+            property string bType: "proc"
+            property string bKey: ""
+            property string bName: ""
+            property string bVal: ""
+            property real rad: 10
+            property real depth: 400
+            property real pct: 0.05
+            property real sq: 0
+            property vector4d lDir: Qt.vector4d(-0.4, 0.5, 0.7, 0)
+            property bool hot: false
+            readonly property bool isMetric: bType === "metric"
+            readonly property bool isApp: bType === "group"
+            readonly property bool isSelected: root.selectedId === nid
+            readonly property bool isDragged: root.dragId === nid
+            readonly property color sphereBase: isApp ? "#C9D3E6"
+                                              : isMetric ? "#121828"
+                                              : (hot ? root.cHot : "#4E688F")
+            readonly property color sphereAccent: isMetric ? root.metricColor(bKey)
+                                                : (isApp ? root.cCream : root.cGold)
+
+            visible: false
+            width: rad * 2
+            height: rad * 2
+            scale: (isDragged ? 1.1 : 1.0) * (1.0 + sq * 0.45)
+
+            function sync(n, sx, sy, sr, dp, sunVec) {
+                bType = n.type;
+                bKey = n.key || "";
+                bName = n.name || "";
+                rad = sr;
+                depth = dp;
+                sq = n.sq;
+                lDir = sunVec;
+                hot = !isMetric && n.cpu > 45;
+                if (isMetric) {
+                    pct = root.dialFrac(bKey);
+                    bVal = root.dialText(bKey);
+                } else {
+                    bVal = n.cpu.toFixed(n.cpu < 10 ? 1 : 0) + "%";
+                }
+                x = sx - sr;
+                y = sy - sr;
+                z = -dp;
+                visible = true;
+            }
+
+            Component.onCompleted: root.itemMap[nid] = bItem
+            Component.onDestruction: delete root.itemMap[nid]
+
+            // Selection / hover outer ring
+            Rectangle {
+                visible: bItem.isSelected || bMa.containsMouse
+                anchors.centerIn: parent
+                width: parent.width + 8; height: width; radius: width / 2
+                color: "transparent"
+                border.width: bItem.isSelected ? 2 : 1
+                border.color: bItem.sphereAccent
+                opacity: bItem.isSelected ? 0.95 : 0.55
+            }
+
+            // Real 3D analytic GLSL sphere
+            ShaderEffect {
+                anchors.fill: parent
+                property color baseColor: bItem.sphereBase
+                property color accentColor: bItem.sphereAccent
+                property vector4d lightDir: bItem.lDir
+                property vector4d params: Qt.vector4d(
+                    bItem.isMetric ? 1.0 : 0.0,
+                    bItem.pct,
+                    bItem.hot ? 1.0 : 0.0,
+                    (bItem.isSelected || bMa.containsMouse) ? 1.0 : 0.0
+                )
+                fragmentShader: Qt.resolvedUrl("../shaders/bubble_sphere.frag.qsb")
+            }
+
+            // Label (only when close enough to read)
+            Column {
+                anchors.centerIn: parent
+                visible: bItem.rad >= 15
+                spacing: 0
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(implicitWidth, bItem.rad * 1.55)
+                    elide: Text.ElideRight
+                    text: bItem.bName
+                    font.family: root.fMono
+                    font.pixelSize: Math.max(7, Math.round(bItem.rad * (bItem.isMetric ? 0.23 : 0.28)))
+                    font.bold: true
+                    color: bItem.isApp ? "#0A0D14" : (bItem.isMetric ? root.cDim : root.cCream)
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: bItem.rad >= 21
+                    text: bItem.bVal
+                    font.family: root.fMono
+                    font.pixelSize: Math.max(8, Math.round(bItem.rad * (bItem.isMetric ? 0.36 : 0.23)))
+                    font.bold: bItem.isMetric
+                    color: bItem.isApp ? "#182030" : root.cCream
+                }
+            }
+
+            // Click to open left InfoPanel, drag to toss in 3D along camera plane
+            MouseArea {
+                id: bMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: bItem.isDragged ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+                property real startX: 0
+                property real startY: 0
+                property real lastX: 0
+                property real lastY: 0
+                property real lastT: 0
+                property bool moved: false
+
+                onPressed: (m) => {
+                    const p = bMa.mapToItem(root, m.x, m.y);
+                    startX = lastX = p.x;
+                    startY = lastY = p.y;
+                    lastT = Date.now();
+                    moved = false;
+                    root.dragId = bItem.nid;
+                    root.dragDepth = bItem.depth;
+                    if (root.rig) root.rig.isInteracting = true;
+                }
+                onPositionChanged: (m) => {
+                    if (!pressed || root.dragId !== bItem.nid || !root.rig) return;
+                    const p = bMa.mapToItem(root, m.x, m.y);
+                    if (Math.hypot(p.x - startX, p.y - startY) > 5) moved = true;
+                    if (!moved) return;
+
+                    const now = Date.now();
+                    const dt = Math.max(0.008, (now - lastT) / 1000.0);
+                    const dsx = p.x - lastX;
+                    const dsy = p.y - lastY;
+                    lastX = p.x; lastY = p.y; lastT = now;
+
+                    const n = root.nodeMap[bItem.nid];
+                    if (!n) return;
+                    const fov = Math.min(root.width, root.height) * 0.95;
+                    const worldPerPx = root.dragDepth / Math.max(1, fov);
+
+                    const r = root.rig;
+                    const rightX = Math.cos(r.camYaw), rightZ = -Math.sin(r.camYaw);
+                    const upX = Math.sin(r.camYaw) * Math.sin(r.camPitch);
+                    const upY = Math.cos(r.camPitch);
+                    const upZ = Math.cos(r.camYaw) * Math.sin(r.camPitch);
+
+                    const wx = (rightX * dsx - upX * dsy) * worldPerPx;
+                    const wy = (-upY * dsy) * worldPerPx;
+                    const wz = (rightZ * dsx - upZ * dsy) * worldPerPx;
+
+                    n.x += wx; n.y += wy; n.z += wz;
+                    n.vx = Math.max(-180, Math.min(180, wx / dt * 0.55));
+                    n.vy = Math.max(-180, Math.min(180, wy / dt * 0.55));
+                    n.vz = Math.max(-180, Math.min(180, wz / dt * 0.55));
+                }
+                onReleased: {
+                    if (root.rig) root.rig.isInteracting = false;
+                    root.dragId = "";
+                    if (!moved) root.openById(bItem.nid, 1);
+                }
+                onCanceled: {
+                    if (root.rig) root.rig.isInteracting = false;
+                    root.dragId = "";
+                }
+            }
+        }
+    }
+
+    // ---------- Top-left control bar (shifts right smoothly when left InfoPanel opens) ----------
+    Rectangle {
+        z: 100000
+        x: 16 + leftPanel.width * root.openProg
+        y: 16
+        width: barRow.implicitWidth + 16
+        height: 32
+        radius: 16
+        color: "#CC070911"
+        border.width: 1
+        border.color: "#55D4AF37"
+
+        Row {
+            id: barRow
+            anchors.centerIn: parent
+            spacing: 8
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "3D BUBBLES"
+                color: root.cGold
+                font.family: root.fMono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.5
+            }
+            Repeater {
+                model: [{ k: "both", l: "ALL" }, { k: "procs", l: "PROCS" }, { k: "apps", l: "APPS" }]
+                delegate: Rectangle {
+                    required property var modelData
+                    readonly property bool on: BubbleState.mode === modelData.k
+                    width: ml.implicitWidth + 10; height: 22; radius: 11
+                    color: on ? "#33D4AF37" : "transparent"
+                    Text { id: ml; anchors.centerIn: parent; text: modelData.l; color: on ? root.cGold : root.cDim; font.family: root.fMono; font.pixelSize: 9 }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: BubbleState.mode = modelData.k }
+                }
+            }
+            Rectangle {
+                width: recLbl.implicitWidth + 12; height: 22; radius: 11
+                color: recMa.containsMouse ? "#28D4AF37" : "#14D4AF37"
+                Text { id: recLbl; anchors.centerIn: parent; text: "SUMMON"; color: root.cCream; font.family: root.fMono; font.pixelSize: 9 }
+                MouseArea { id: recMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.placeAnchorInFront() }
+            }
+            Rectangle {
+                width: 22; height: 22; radius: 11
+                color: clMa.containsMouse ? "#33D9694A" : "transparent"
+                Text { anchors.centerIn: parent; text: "✕"; color: root.cCream; font.pixelSize: 11 }
+                MouseArea { id: clMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: BubbleState.open = false }
+            }
+        }
+    }
+
+    // ---------- Right-side quick-toggle pill (CPU / RAM / Temp / Net / Disk + wheel step) ----------
+    Rectangle {
+        id: quickPill
+        z: 100000
+        anchors.right: parent.right
+        anchors.rightMargin: 16
+        anchors.verticalCenter: parent.verticalCenter
+        width: 42
+        height: quickCol.implicitHeight + 10
+        radius: 21
+        color: "#CC070911"
+        border.width: 1
+        border.color: "#55D4AF37"
+
+        readonly property var keys: ["cpu", "mem", "temp", "net", "disk"]
+        readonly property var icons: ["CPU", "RAM", "TMP", "NET", "DSK"]
+        readonly property int at: keys.indexOf(root.selectedId)
+        property int last: 0
+        onAtChanged: if (at >= 0) last = at
+
+        function go(i) {
+            i = Math.max(0, Math.min(keys.length - 1, i));
+            const dir = (at >= 0 && i < at) ? -1 : 1;
+            root.openById(keys[i], dir);
+        }
+
+        Rectangle {
+            visible: quickPill.at >= 0
+            x: 4; y: 5 + quickPill.last * 34
+            width: 34; height: 34; radius: 17
+            color: "#33D4AF37"
+            border.width: 1; border.color: root.cGold
+            Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+        }
+
+        Column {
+            id: quickCol
+            x: 4; y: 5
+            Repeater {
+                model: quickPill.keys.length
+                Item {
+                    required property int index
+                    readonly property bool active: quickPill.at === index
+                    width: 34; height: 34
+                    Text {
+                        anchors.centerIn: parent
+                        text: quickPill.icons[parent.index]
+                        font.family: root.fMono; font.pixelSize: 9; font.bold: true
+                        color: parent.active ? root.cGold : (qMa.containsMouse ? root.cCream : root.cDim)
+                        Behavior on color { ColorAnimation { duration: 140 } }
+                    }
+                    MouseArea {
+                        id: qMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                        onClicked: quickPill.go(parent.index)
+                    }
+                }
+            }
+        }
+
+        WheelHandler {
+            orientation: Qt.Vertical
+            onWheel: (e) => {
+                if (e.angleDelta.y === 0) return;
+                const dir = e.angleDelta.y < 0 ? 1 : -1;
+                const next = (quickPill.at >= 0 ? quickPill.at : quickPill.last - dir) + dir;
+                quickPill.go(next);
+            }
+        }
+    }
+
+    // ---------- Slide-in Left Detail Panel (previous BubbleMonitor UI in Outer Wilds theme) ----------
+    Rectangle {
+        id: leftPanel
+        z: 100000
+        width: Math.min(390, Math.max(310, Math.round(parent.width * 0.26)))
+        height: parent.height
+        x: -width * (1.0 - root.openProg)
+        visible: root.openProg > 0.005
+        color: root.cBg
+        border.width: 1
+        border.color: "#55D4AF37"
+        clip: true
+
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons; onWheel: (w) => w.accepted = true }
+
+        // Close button
+        Rectangle {
+            z: 10
+            anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 14
+            width: 28; height: 28; radius: 7
+            color: lpCloseMa.containsMouse ? "#28D4AF37" : root.cCard
+            border.width: 1; border.color: lpCloseMa.containsMouse ? root.cGold : root.cLine
+            Text { anchors.centerIn: parent; text: "✕"; color: root.cCream; font.family: root.fMono; font.pixelSize: 11 }
+            MouseArea { id: lpCloseMa; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { root.selectedId = ""; root.info = null; } }
+        }
+
+        Flickable {
+            anchors.fill: parent
+            anchors.margins: 20
+            contentWidth: width
+            contentHeight: detailCol.implicitHeight + 24
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+            Column {
+                id: detailCol
+                width: parent.width
+                spacing: 14
+                readonly property var d: root.info
+                readonly property string kind: d ? d.kind : ""
+                readonly property color acc: d ? d.color : root.cGold
+
+                // Header + rotating shape glyph
+                Column {
+                    width: parent.width; spacing: 4
+                    Row {
+                        spacing: 10
+                        Item {
+                            width: 14; height: 14; anchors.verticalCenter: parent.verticalCenter
+                            Shape {
+                                anchors.fill: parent
+                                preferredRendererType: Shape.CurveRenderer
+                                ShapePath {
+                                    strokeColor: detailCol.acc; strokeWidth: 1.2; fillColor: detailCol.acc
+                                    PathSvg {
+                                        path: detailCol.kind === "cpu" ? "M2,2 L12,2 L12,12 L2,12 Z"
+                                            : detailCol.kind === "mem" ? "M7,0 L13,3.5 L13,10.5 L7,14 L1,10.5 L1,3.5 Z"
+                                            : detailCol.kind === "temp" ? "M7,1 L13,13 L1,13 Z"
+                                            : detailCol.kind === "net" ? "M7,0 L12,7 L7,14 L2,7 Z"
+                                            : "M7,1 L13,5.5 L10.5,13 L3.5,13 L1,5.5 Z"
+                                    }
+                                }
+                            }
+                            RotationAnimation on rotation { running: leftPanel.visible; loops: Animation.Infinite; from: 0; to: 360; duration: 9000 }
+                        }
+                        Text {
+                            width: detailCol.width - 64; elide: Text.ElideRight
+                            text: detailCol.d ? String(detailCol.d.title).toUpperCase() : ""
+                            color: root.cCream; font.family: root.fMono; font.pixelSize: 16; font.bold: true; font.letterSpacing: 2
+                        }
+                    }
+                    Text {
+                        width: parent.width - 36; elide: Text.ElideRight
+                        text: detailCol.d ? detailCol.d.sub : ""
+                        color: root.cDim; font.family: root.fMono; font.pixelSize: 10
+                    }
+                }
+
+                // Big primary metric readout
+                Row {
+                    spacing: 6
+                    Text {
+                        id: bigNum
+                        text: detailCol.d ? detailCol.d.num : ""
+                        color: detailCol.acc; font.family: root.fMono; font.pixelSize: 42; font.bold: true
+                    }
+                    Text {
+                        anchors.baseline: bigNum.baseline
+                        text: detailCol.d ? detailCol.d.unit : ""
+                        color: root.cDim; font.family: root.fMono; font.pixelSize: 12
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: root.cLine }
+
+                // CPU: history sparkline + per-core bars
+                Column {
+                    visible: detailCol.kind === "cpu"
+                    width: parent.width; spacing: 10
+                    SparkChart {
+                        width: parent.width; height: 76
+                        values: detailCol.d ? detailCol.d.hist : []
+                        lineColor: detailCol.acc
+                    }
+                    Row {
+                        id: coreBars
+                        width: parent.width; spacing: 4
+                        readonly property var cList: detailCol.d ? detailCol.d.cores : []
+                        Repeater {
+                            model: coreBars.cList.length
+                            Column {
+                                required property int index
+                                readonly property real v: coreBars.cList[index] || 0
+                                width: (coreBars.width - 4 * Math.max(0, coreBars.cList.length - 1)) / Math.max(1, coreBars.cList.length)
+                                spacing: 3
+                                Rectangle {
+                                    width: parent.width; height: 38; radius: 4; color: root.cCard; border.width: 1; border.color: root.cLine; clip: true
+                                    Rectangle {
+                                        anchors.bottom: parent.bottom; width: parent.width
+                                        height: Math.max(2, parent.height * Math.min(1, parent.parent.v / 100))
+                                        color: detailCol.acc; radius: 3
+                                        Behavior on height { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                                    }
+                                }
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: Math.round(parent.v); color: root.cDim; font.family: root.fMono; font.pixelSize: 8
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Memory: Apps / Cache / Free stacked bar
+                Column {
+                    visible: detailCol.kind === "mem"
+                    width: parent.width; spacing: 8
+                    Rectangle {
+                        width: parent.width; height: 18; radius: 6; color: root.cCard; border.width: 1; border.color: root.cLine; clip: true
+                        Row {
+                            spacing: 2
+                            Rectangle {
+                                width: detailCol.d ? parent.parent.width * detailCol.d.memApps / Math.max(1, root.vTotal) : 0
+                                height: 18; radius: 5; color: root.cGold
+                                Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
+                            }
+                            Rectangle {
+                                width: detailCol.d ? parent.parent.width * detailCol.d.memCache / Math.max(1, root.vTotal) : 0
+                                height: 18; radius: 5; color: Qt.rgba(0.9, 0.84, 0.72, 0.4)
+                                Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
+                            }
+                        }
+                    }
+                    Row {
+                        spacing: 14
+                        Text { text: "■ Apps " + (detailCol.d ? detailCol.d.memApps.toFixed(1) : "0") + "G"; color: root.cGold; font.family: root.fMono; font.pixelSize: 10 }
+                        Text { text: "■ Cache " + (detailCol.d ? detailCol.d.memCache.toFixed(1) : "0") + "G"; color: root.cCream; font.family: root.fMono; font.pixelSize: 10 }
+                        Text { text: "■ Free " + (detailCol.d ? detailCol.d.memFree.toFixed(1) : "0") + "G"; color: root.cDim; font.family: root.fMono; font.pixelSize: 10 }
+                    }
+                }
+
+                // Thermal: 30-100°C gauge
+                Column {
+                    visible: detailCol.kind === "temp"
+                    width: parent.width; spacing: 6
+                    Rectangle {
+                        width: parent.width; height: 10; radius: 5; color: root.cCard; border.width: 1; border.color: root.cLine; clip: true
+                        Rectangle {
+                            width: parent.width * Math.max(0, Math.min(1, (root.vTemp - 30) / 70))
+                            height: 10; radius: 5; color: root.cHot
+                            Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutCubic } }
+                        }
+                    }
+                    Item {
+                        width: parent.width; height: 14
+                        Text { anchors.left: parent.left; text: "30°"; color: root.cDim; font.family: root.fMono; font.pixelSize: 9 }
+                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: "65°"; color: root.cDim; font.family: root.fMono; font.pixelSize: 9 }
+                        Text { anchors.right: parent.right; text: "100°"; color: root.cDim; font.family: root.fMono; font.pixelSize: 9 }
+                    }
+                }
+
+                // Net / Disk: dual sparkline
+                Column {
+                    visible: detailCol.kind === "net" || detailCol.kind === "disk"
+                    width: parent.width; spacing: 6
+                    SparkChart {
+                        width: parent.width; height: 82
+                        values: (detailCol.d && detailCol.d.io) ? detailCol.d.io.down : []
+                        values2: (detailCol.d && detailCol.d.io) ? detailCol.d.io.up : []
+                        autoScale: true
+                        lineColor: detailCol.acc
+                        lineColor2: root.cGold
+                    }
+                    Row {
+                        spacing: 14
+                        Text { text: "— " + ((detailCol.d && detailCol.d.legend) ? detailCol.d.legend[1] : ""); color: detailCol.acc; font.family: root.fMono; font.pixelSize: 10 }
+                        Text { text: "— " + ((detailCol.d && detailCol.d.legend) ? detailCol.d.legend[0] : ""); color: root.cGold; font.family: root.fMono; font.pixelSize: 10 }
+                    }
+                }
+
+                // Process / App: CPU history
+                SparkChart {
+                    visible: detailCol.kind === "app" || detailCol.kind === "group"
+                    width: parent.width; height: 72
+                    values: detailCol.d ? detailCol.d.hist : []
+                    lineColor: detailCol.acc
+                }
+
+                // 2-column facts grid
+                Grid {
+                    width: parent.width; columns: 2; rowSpacing: 10; columnSpacing: 10
+                    Repeater {
+                        model: detailCol.d ? detailCol.d.facts : []
+                        Column {
+                            required property var modelData
+                            width: (detailCol.width - 10) / 2; spacing: 2
+                            Text { text: modelData.lbl.toUpperCase(); color: root.cDim; font.family: root.fMono; font.pixelSize: 9; font.letterSpacing: 1 }
+                            Text { width: parent.width; elide: Text.ElideRight; text: modelData.val; color: root.cCream; font.family: root.fMono; font.pixelSize: 13; font.bold: true }
+                        }
+                    }
+                }
+
+                // Ranked lists (Processes / Sensors / Drives / Windows)
+                RankList { list: detailCol.d ? detailCol.d.list2 : null }
+                RankList { list: detailCol.d ? detailCol.d.list : null }
+            }
+        }
+    }
+
+    // Reusable Canvas sparkline for the left detail panel
+    component SparkChart: Rectangle {
+        id: sc
+        property var values: []
+        property var values2: []
+        property bool autoScale: false
+        property color lineColor: root.cGold
+        property color lineColor2: root.cCream
+        radius: 8; color: root.cCard; border.width: 1; border.color: root.cLine
+        onValuesChanged: scCanvas.requestPaint()
+        onValues2Changed: scCanvas.requestPaint()
+
+        Canvas {
+            id: scCanvas
+            anchors.fill: parent; anchors.margins: 8
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                const w = width, h = height;
+                const drawLine = (arr, col, fill) => {
+                    if (!arr || arr.length < 2) return;
+                    let mx = sc.autoScale ? Math.max(1, ...arr) : 100;
+                    ctx.beginPath();
+                    for (let i = 0; i < arr.length; i++) {
+                        const x = (i / (arr.length - 1)) * w;
+                        const y = h - Math.max(0, Math.min(1, arr[i] / mx)) * h;
+                        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    }
+                    ctx.strokeStyle = col;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    if (fill) {
+                        ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+                        ctx.fillStyle = fill;
+                        ctx.fill();
+                    }
+                };
+                drawLine(sc.values, sc.lineColor, Qt.rgba(sc.lineColor.r, sc.lineColor.g, sc.lineColor.b, 0.14));
+                if (sc.values2 && sc.values2.length > 1) drawLine(sc.values2, sc.lineColor2, "");
+            }
+        }
+    }
+
+    component RankList: Column {
+        id: rl
+        property var list: null
+        visible: !!list && list.rows && list.rows.length > 0
+        width: parent.width; spacing: 6
+        Rectangle { width: parent.width; height: 1; color: root.cLine }
+        Text { text: rl.list ? rl.list.title : ""; color: root.cGold; font.family: root.fMono; font.pixelSize: 10; font.bold: true; font.letterSpacing: 1.5 }
+        Repeater {
+            model: (rl.list && rl.list.rows) ? rl.list.rows : []
+            Rectangle {
+                id: rRow
+                required property var modelData
+                readonly property bool clickable: !!modelData.id
+                width: rl.width; height: 26; radius: 6
+                color: (clickable && rMa.containsMouse) ? "#1FD4AF37" : "transparent"
+                Text {
+                    x: 4; width: modelData.frac !== undefined ? parent.width * 0.42 : parent.width - 8
+                    anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight
+                    text: modelData.name || ""; color: root.cCream; font.family: root.fMono; font.pixelSize: 11
+                }
+                Rectangle {
+                    visible: modelData.frac !== undefined
+                    x: parent.width * 0.45; anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width * 0.28; height: 4; radius: 2; color: "#22D4AF37"
+                    Rectangle { width: parent.width * Math.max(0, Math.min(1, modelData.frac || 0)); height: 4; radius: 2; color: root.cGold }
+                }
+                Text {
+                    visible: !!modelData.val
+                    anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter
+                    text: modelData.val || ""; color: root.cDim; font.family: root.fMono; font.pixelSize: 10
+                }
+                MouseArea {
+                    id: rMa; anchors.fill: parent; enabled: rRow.clickable; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.openById(rRow.modelData.id, 1)
+                }
+            }
+        }
+    }
+}

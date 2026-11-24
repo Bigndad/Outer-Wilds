@@ -122,9 +122,6 @@
     "x18": {
       "size": 0.65
     },
-    "x20": {
-      "enabled": false
-    },
     "x24": {
       "size": 0.7000000000000001,
       "speed": -0.39
@@ -133,7 +130,17 @@
       "host": "giants_deep"
     },
     "x27": {
-      "host": "brittle_hollow"
+      "host": "brittle_hollow",
+      "tilt": 1.6500000000000001,
+      "speed": 0.28
+    },
+    "x16": {
+      "settings": {
+        "location": "Mumbai"
+      }
+    },
+    "x23": {
+      "node": 1.9000000000000001
     }
   },
   "extras": [
@@ -447,23 +454,6 @@
       }
     },
     {
-      "id": "x20",
-      "host": "sun",
-      "source": "DateWorldWidget.qml",
-      "show": "focus",
-      "worldWk": 1.25,
-      "minUi": 0.5,
-      "maxUi": 1.4,
-      "orbit": {
-        "k": 2,
-        "add": 40,
-        "tilt": 0.4670776150452612,
-        "node": 1.016962849742896,
-        "phase": 4.016962849742896,
-        "speed": 0.2
-      }
-    },
-    {
       "id": "x21",
       "host": "sun_station",
       "source": "ScreentimeCard.qml",
@@ -619,12 +609,33 @@
         "phase": 4.367110928204141,
         "speed": 0.2
       }
+    },
+    {
+      "id": "x29",
+      "host": "sun_station",
+      "source": "PowerWidget.qml",
+      "show": "focus",
+      "worldWk": 1.25,
+      "minUi": 0.5,
+      "maxUi": 1.4,
+      "orbit": {
+        "k": 2,
+        "add": 40,
+        "tilt": 0.659631942761737,
+        "node": 0.48388862102455477,
+        "phase": 0.48388862102455477,
+        "speed": 0.2
+      },
+      "title": "POWER"
     }
   ],
   "pinned": {
     "x15": true,
+    "x14": true,
     "x22": true
   },
+  "lockedPins": {},
+  "pinOrbits": {},
   "presets": {},
   "keys": {
     "launcher": "Alt+A",
@@ -633,7 +644,7 @@
   "ui": {
     "loopPanel": false,
     "shrinkFar": true,
-    "bakeW": 1024,
+    "bakeW": 2048,
     "hud": true,
     "orbits": true,
     "labels": true,
@@ -685,6 +696,12 @@
     "pinDimOpacity": 0.6000000000000001,
     "pinScale": 1.25,
     "pinOutlineColor": "#D4AF37",
+    "pinLockOutlineColor": "#6FEAEE",
+    "pinOrbitDefault": true,
+    "notifAutoHide": true,
+    "notifHideSec": 2.4,
+    "notifAutoArchive": true,
+    "notifArchiveHours": 24,
     "nativeBg": "",
     "nativeSurface": "",
     "nativeText": "",
@@ -709,6 +726,12 @@
     "serpAccent": "",
     "serpOpacity": 0.92,
     "serpRadius": 8,
-    "serpFont": ""
+    "serpFont": "",
+    "bubbleGravity": 0.16,
+    "bubbleOrbitPull": 0.45,
+    "bubbleHubSpacing": 155,
+    "bubbleGroupAttract": 0.55,
+    "bubbleMaxProcs": 28,
+    "bubbleSphereSize": 1
   }
 }

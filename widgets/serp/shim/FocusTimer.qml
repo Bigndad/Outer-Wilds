@@ -2,6 +2,7 @@ pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "../../.."
 
 Item {
     id: root
@@ -209,7 +210,18 @@ Item {
 
     property string exportedStateKey: ""
 
+    function publishProgress() {
+        const tFrac = timerPresetMs > 0 ? Math.max(0, Math.min(1, timerRemainingMs / timerPresetMs)) : 0;
+        const pMin = pomoState === 0 ? pomoWorkLimit : (pomoState === 1 ? pomoShortBreakLimit : pomoLongBreakLimit);
+        const pFrac = Math.max(0, Math.min(1, pomoRemainingMs / Math.max(1, pMin * 60 * 1000)));
+        const swFrac = (swDisplayMs % 60000) / 60000;
+        WidgetConfig.setProgress("timer", tFrac);
+        WidgetConfig.setProgress("pomo", pFrac);
+        WidgetConfig.setProgress("stopwatch", swFrac);
+    }
+
     function updateExportedState() {
+        publishProgress();
         let list = [];
 
         if (timerTargetEpoch > 0) {
@@ -268,6 +280,7 @@ Item {
     function setTimerPreset(ms) {
         timerPresetMs = ms;
         timerRemainingMs = ms;
+        publishProgress();
         saveState();
     }
 

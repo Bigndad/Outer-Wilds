@@ -1,0 +1,16 @@
+pragma Singleton
+import QtQuick
+
+QtObject {
+    id: st
+    property bool open: false
+    property var snap: null
+    property int snapSeq: 0
+    property string mode: "both"      // "procs" | "apps" | "both"
+    property int recenterSeq: 0
+
+    function pushSnap(s) {
+        snap = s;
+        snapSeq++;
+    }
+}

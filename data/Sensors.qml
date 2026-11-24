@@ -52,6 +52,12 @@ Singleton {
                     break
                 fi
             done
+            for b in /sys/class/power_supply/BAT*/capacity; do
+                if [ -f \"$b\" ]; then echo \"BAT_PCT $(cat \"$b\" 2>/dev/null)\"; break; fi
+            done
+            if command -v wpctl >/dev/null 2>&1; then
+                echo \"VOL_RAW $(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null)\"
+            fi
         "]
         stdout: StdioCollector {
             onStreamFinished: root.parse(text)
@@ -96,6 +102,12 @@ Singleton {
                 root.vramUsedGb = Math.round(((parseFloat(parts[1]) || 0) / 1073741824) * 100) / 100;
             } else if (parts[0] === "VRAM_T") {
                 root.vramTotalGb = Math.round(((parseFloat(parts[1]) || 0) / 1073741824) * 100) / 100;
+            } else if (parts[0] === "BAT_PCT") {
+                WidgetConfig.setProgress("battery", (parseFloat(parts[1]) || 0) / 100);
+            } else if (parts[0] === "VOL_RAW") {
+                const muted = lines[i].indexOf("MUTED") >= 0;
+                const vol = muted ? 0 : (parseFloat(parts[2]) || 0);
+                WidgetConfig.setProgress("volume", vol);
             }
         }
 
@@ -110,6 +122,11 @@ Singleton {
         if (root.vramTotalGb > 0) {
             root.vramPercent = Math.round((root.vramUsedGb / root.vramTotalGb) * 100);
         }
+        WidgetConfig.setProgress("cpu", root.cpuPercent / 100);
+        WidgetConfig.setProgress("ram", root.ramPercent / 100);
+        WidgetConfig.setProgress("gpu", root.gpuPercent / 100);
+        if (root.cpuTempC > 0) WidgetConfig.setProgress("temp", (root.cpuTempC - 25) / 70);
+        else if (root.gpuTempC > 0) WidgetConfig.setProgress("temp", (root.gpuTempC - 25) / 70);
     }
 
     // ---------------- disks (cheap: one df every 30 s, only while the scene is visible) ----------------
@@ -139,6 +156,9 @@ Singleton {
                     out.push({ mount: mount, totalGb: parseFloat(m[1]) / 1073741824, usedGb: parseFloat(m[2]) / 1073741824 });
                 }
                 root.disks = out;
+                for (let j = 0; j < out.length; j++) {
+                    if (out[j].totalGb > 0) WidgetConfig.setProgress("disk" + j, out[j].usedGb / out[j].totalGb);
+                }
             }
         }
     }

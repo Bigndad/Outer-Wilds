@@ -36,7 +36,8 @@ QtObject {
     property int maxPerApp: 36              // ... and at most this many per app cluster
     property bool lockThreads: true         // a thread reply stays "locked" (???) until the message before it is read.
                                             // false = nothing is ever locked.
-    property int agingHours: 24             // READ notifications older than this fade; 2+ of them per app gather into one
+    property bool autoArchive: WidgetConfig.notifAutoArchive
+    property int agingHours: WidgetConfig.notifArchiveHours // READ notifications older than this fade; 2+ of them per app gather into one
                                             // "N older" stack card (Enter spreads them out). Pinned and unread cards never age away.
     property var pinnedIds: ({})            // { id: true }  pinned cards always stay on the map
     property var expandedArchives: ({})     // { appName: true } while the map is open
@@ -44,6 +45,7 @@ QtObject {
     property bool _loading: true            // true while the mock fills itself, so it does not fire "arrived"
 
     signal arrived(var n)                   // a NEW notification came in (toast + widget flash listen to this)
+    signal cleared()                        // all notifications were cleared
     signal openRequested(var n)             // the user asked to open the app behind a card (go-live: launch it, see bottom)
 
     readonly property int unreadCount: {
@@ -79,6 +81,8 @@ QtObject {
         notifications = [];
         readIds = ({});
         pinnedIds = ({});
+        expandedArchives = ({});
+        cleared();
     }
 
     // ---- actions on a card ----
@@ -221,20 +225,23 @@ QtObject {
             apps[appIdx[n.app]].items.push(n);
         }
 
+        const doArchive = autoArchive;
         // aging: 2+ old READ cards of an app gather into one stack card (unless that app's stack was spread out)
-        for (let k = 0; k < apps.length; k++) {
-            const app = apps[k];
-            const agedRead = app.items.filter(n => !pinnedIds[n.id] && now - n.time > agingMs && readIds[n.id]);
-            if (!expandedArchives[app.name] && agedRead.length >= 2) {
-                let drop = {};
-                for (let i = 0; i < agedRead.length; i++) drop[agedRead[i].id] = true;
-                const stack = {
-                    id: "archive:" + app.name, archive: true, app: app.name, thread: "", urgency: "normal", appId: "", image: "",
-                    ids: agedRead.map(n => n.id), count: agedRead.length, time: agedRead[agedRead.length - 1].time,
-                    summary: agedRead.length + " older rumors",
-                    body: "Read notifications older than " + agingHours + " hours are gathered here. Press Enter to spread them out."
-                };
-                app.items = [stack].concat(app.items.filter(n => !drop[n.id]));
+        if (doArchive) {
+            for (let k = 0; k < apps.length; k++) {
+                const app = apps[k];
+                const agedRead = app.items.filter(n => !pinnedIds[n.id] && now - n.time > agingMs && readIds[n.id]);
+                if (!expandedArchives[app.name] && agedRead.length >= 2) {
+                    let drop = {};
+                    for (let i = 0; i < agedRead.length; i++) drop[agedRead[i].id] = true;
+                    const stack = {
+                        id: "archive:" + app.name, archive: true, app: app.name, thread: "", urgency: "normal", appId: "", image: "",
+                        ids: agedRead.map(n => n.id), count: agedRead.length, time: agedRead[agedRead.length - 1].time,
+                        summary: agedRead.length + " older rumors",
+                        body: "Read notifications older than " + agingHours + " hours are gathered here. Press Enter to spread them out."
+                    };
+                    app.items = [stack].concat(app.items.filter(n => !drop[n.id]));
+                }
             }
         }
 
@@ -283,7 +290,7 @@ QtObject {
                     appId: src.appId || "",
                     urgency: src.urgency || "normal",
                     pinned: pinned,
-                    aged: !src.archive && !pinned && (now - src.time > agingMs),
+                    aged: doArchive && !src.archive && !pinned && (now - src.time > agingMs),
                     archive: !!src.archive,
                     image: src.image || "",
                     w: (src.image || "") !== "" ? imgCardW : cardW,

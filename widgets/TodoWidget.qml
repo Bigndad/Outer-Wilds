@@ -18,6 +18,13 @@ WidgetCard {
         { text: "Check ship log", done: false },
         { text: "Calibrate signalscope", done: true }
     ]
+    readonly property int doneCount: {
+        let c = 0;
+        for (let i = 0; i < tasks.length; i++) if (tasks[i].done) c++;
+        return c;
+    }
+    readonly property real progress: tasks.length > 0 ? doneCount / tasks.length : 0
+    readonly property string progressLabel: doneCount + "/" + tasks.length
 
     function addTask(t) {
         const clean = String(t || "").trim();

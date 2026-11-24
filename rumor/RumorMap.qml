@@ -79,39 +79,69 @@ Item {
     }
 
     // ---------------- "SHIP LOG UPDATED" toast ----------------
-    // Input-transparent (no MouseArea). Hidden, and its animation idle, except for ~3 s after an arrival.
+    // Input-transparent while hidden. Auto-hides when WidgetConfig.notifAutoHide is true,
+    // or stays visible until clicked / dismissed / Ship Log opened.
     Rectangle {
         id: toast
         objectName: "rumorToast"
         readonly property real bu: Math.max(0.75, Math.round(host.height / 1080 * 16) / 16)
+        readonly property color accent: critical ? "#E2554C" : "#D4AF37"
         property string detail: ""
         property bool critical: false
+        property bool sticky: false
         opacity: 0
         visible: opacity > 0.005
-        width: Math.round(Math.max(tTitle.implicitWidth, tDetail.implicitWidth) + 44 * bu)
-        height: Math.round(tTitle.implicitHeight + tDetail.implicitHeight + 24 * bu)
+        width: Math.round(Math.max(tTitle.implicitWidth, tDetail.implicitWidth, sticky ? tHint.implicitWidth : 0) + (sticky ? 72 : 48) * bu)
+        height: Math.round(tCol.implicitHeight + 22 * bu)
         x: Math.round((host.width - width) / 2)
-        y: Math.round(48 * bu)
-        color: "#EA07080C"
+        y: Math.round(48 * bu - (1 - opacity) * 14 * bu)
+        radius: Math.round(4 * bu)
+        color: toastMa.containsMouse ? "#F40C101B" : "#EA07080C"
         border.width: Math.max(1, Math.round(bu))
-        border.color: critical ? "#E2554C" : "#D4AF37"
+        border.color: accent
+
+        // Left urgency accent strip
+        Rectangle {
+            x: parent.border.width
+            y: parent.border.width
+            width: Math.max(3, Math.round(3 * toast.bu))
+            height: parent.height - parent.border.width * 2
+            color: toast.accent
+        }
+
+        // Subtle Outer Wilds corner brackets
+        Repeater {
+            model: 4
+            delegate: Item {
+                required property int index
+                readonly property bool atR: index === 1 || index === 3
+                readonly property bool atB: index === 2 || index === 3
+                readonly property int arm: Math.round(8 * toast.bu)
+                readonly property int th: Math.max(1, Math.round(1.5 * toast.bu))
+                width: arm; height: arm
+                x: atR ? toast.width - arm + Math.round(3 * toast.bu) : -Math.round(3 * toast.bu)
+                y: atB ? toast.height - arm + Math.round(3 * toast.bu) : -Math.round(3 * toast.bu)
+                Rectangle { width: parent.width; height: parent.th; y: parent.atB ? parent.height - height : 0; color: toast.accent }
+                Rectangle { height: parent.height; width: parent.th; x: parent.atR ? parent.width - width : 0; color: toast.accent }
+            }
+        }
 
         Column {
-            anchors.centerIn: parent
+            id: tCol
+            anchors.verticalCenter: parent.verticalCenter
+            x: Math.round(22 * toast.bu)
             spacing: Math.round(4 * toast.bu)
             Text {
                 id: tTitle
-                anchors.horizontalCenter: parent.horizontalCenter
                 text: toast.critical ? "SHIP LOG UPDATED  -  CRITICAL" : "SHIP LOG UPDATED"
-                color: toast.critical ? "#E2554C" : "#D4AF37"
+                color: toast.accent
                 font.family: "monospace"
                 font.bold: true
-                font.pixelSize: Math.max(9, Math.round(14 * toast.bu))
-                font.letterSpacing: 4 * toast.bu
+                font.pixelSize: Math.max(9, Math.round(13 * toast.bu))
+                font.letterSpacing: 3.5 * toast.bu
             }
             Text {
                 id: tDetail
-                anchors.horizontalCenter: parent.horizontalCenter
                 width: Math.min(implicitWidth, Math.round(520 * toast.bu))
                 text: toast.detail
                 elide: Text.ElideRight
@@ -119,14 +149,78 @@ Item {
                 font.family: "monospace"
                 font.pixelSize: Math.max(8, Math.round(11 * toast.bu))
             }
+            Text {
+                id: tHint
+                visible: toast.sticky
+                text: "CLICK TO OPEN SHIP LOG"
+                color: "#8A7F66"
+                font.family: "monospace"
+                font.pixelSize: Math.max(7, Math.round(9 * toast.bu))
+                font.letterSpacing: 1.5 * toast.bu
+            }
+        }
+
+        MouseArea {
+            id: toastMa
+            anchors.fill: parent
+            enabled: toast.visible
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                toast.hideNow();
+                RumorData.show();
+            }
+        }
+
+        // Manual close button when auto-hide is off
+        Rectangle {
+            visible: toast.sticky
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Math.round(8 * toast.bu)
+            width: Math.round(20 * toast.bu)
+            height: width
+            radius: Math.round(3 * toast.bu)
+            color: closeMa.containsMouse ? "#33D4AF37" : "transparent"
+            border.width: 1
+            border.color: closeMa.containsMouse ? toast.accent : "#44D4AF37"
+            Text {
+                anchors.centerIn: parent
+                text: "✕"
+                color: closeMa.containsMouse ? toast.accent : "#8A7F66"
+                font.family: "monospace"
+                font.pixelSize: Math.max(8, Math.round(10 * toast.bu))
+            }
+            MouseArea {
+                id: closeMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    toast.sticky = false;
+                    toastAutoAnim.stop();
+                    toastInAnim.stop();
+                    toastOutAnim.restart();
+                }
+            }
+        }
+
+        function hideNow() {
+            sticky = false;
+            toastAutoAnim.stop();
+            toastInAnim.stop();
+            toastOutAnim.stop();
+            opacity = 0;
         }
 
         SequentialAnimation {
-            id: toastAnim
+            id: toastAutoAnim
             NumberAnimation { target: toast; property: "opacity"; to: 1; duration: 200; easing.type: Easing.OutQuad }
-            PauseAnimation { duration: 2400 }
+            PauseAnimation { duration: Math.round(WidgetConfig.notifHideSec * 1000) }
             NumberAnimation { target: toast; property: "opacity"; to: 0; duration: 700; easing.type: Easing.InQuad }
         }
+        NumberAnimation { id: toastInAnim; target: toast; property: "opacity"; to: 1; duration: 200; easing.type: Easing.OutQuad }
+        NumberAnimation { id: toastOutAnim; target: toast; property: "opacity"; to: 0; duration: 350; easing.type: Easing.InQuad }
     }
     Connections {
         target: RumorData
@@ -134,7 +228,25 @@ Item {
             if (RumorData.open) return;             // the card appears on the map you are looking at
             toast.detail = n.app + ": " + n.summary;
             toast.critical = n.urgency === "critical";
-            toastAnim.restart();
+            toastAutoAnim.stop(); toastInAnim.stop(); toastOutAnim.stop();
+            if (WidgetConfig.notifAutoHide) {
+                toast.sticky = false;
+                toastAutoAnim.restart();
+            } else {
+                toast.sticky = true;
+                toastInAnim.restart();
+            }
+        }
+        function onOpenChanged() { if (RumorData.open) toast.hideNow(); }
+        function onCleared() { toast.hideNow(); }
+    }
+    Connections {
+        target: WidgetConfig
+        function onNotifAutoHideChanged() {
+            if (WidgetConfig.notifAutoHide && toast.sticky) {
+                toast.sticky = false;
+                toastOutAnim.restart();
+            }
         }
     }
 }

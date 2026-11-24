@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Live data for the System page's Bubble style (../BubbleMonitor.qml), run only while the page is shown: the Sampler
-of the design's server.py (~/Downloads/bubble-monitor) without the web server, plus the open apps (from Hyprland),
-the drives, the sensors and the battery. Prints one snapshot as a JSON line every INTERVAL seconds until it is
-stopped. Read-only: it never signals a process.
-
-    python3 bubble-feed.py [INTERVAL]
-"""
+"""Live data for the 3D Bubble Monitor: system metrics, per-process stats, and Hyprland open apps."""
+import glob
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -15,7 +11,7 @@ import time
 
 import psutil
 
-TOP_N = 16
+TOP_N = 64
 
 
 def cpu_model():
@@ -45,7 +41,6 @@ SENSOR_NAMES = {"coretemp": "", "k10temp": "", "nvme": "SSD", "acpitz": "Board",
 
 
 def read_sensors(temps):
-    """every temperature the machine reports, named for people: [{"label", "c"}]"""
     out = []
     for chip, entries in temps.items():
         for t in entries:
@@ -63,7 +58,6 @@ def read_sensors(temps):
 
 
 def proc_detail(p):
-    """the facts of one listed process that are cheap to read once a second (None where it is not allowed)"""
     out = {"threads": None, "started": None, "cpuSec": None, "readMB": None, "writeMB": None}
     try:
         with p.oneshot():
@@ -81,54 +75,144 @@ def proc_detail(p):
     return out
 
 
+def _hypr_env():
+    env = os.environ.copy()
+    if not env.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        rt = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+        socks = sorted(glob.glob(os.path.join(rt, "hypr", "*", ".socket.sock")), key=os.path.getmtime, reverse=True)
+        if socks:
+            env["HYPRLAND_INSTANCE_SIGNATURE"] = os.path.basename(os.path.dirname(socks[0]))
+    return env
+
+
 def open_windows():
-    """the windows open in Hyprland: [{"pid", "cls", "title", "ws"}] ([] without Hyprland)"""
+    """Windows open in Hyprland: [{"pid", "cls", "title", "ws"}]"""
     try:
-        out = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True, timeout=2).stdout
-        return [{"pid": c.get("pid", -1), "cls": c.get("class") or c.get("initialClass") or "?", "title": c.get("title", ""),
-                 "ws": (c.get("workspace") or {}).get("name", "")} for c in json.loads(out) if c.get("mapped", True)]
+        out = subprocess.run(
+            ["hyprctl", "clients", "-j"],
+            capture_output=True, text=True, timeout=2, env=_hypr_env()
+        ).stdout
+        clients = json.loads(out)
+        res = []
+        for c in clients:
+            if not c.get("mapped", True):
+                continue
+            cls = (c.get("class") or c.get("initialClass") or "").strip()
+            if not cls:
+                continue
+            res.append({
+                "pid": int(c.get("pid") or -1),
+                "cls": cls,
+                "title": c.get("title", ""),
+                "ws": (c.get("workspace") or {}).get("name", ""),
+            })
+        return res
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
 
 
+CLASS_ALIASES = {
+    "zen": ["zen", "zen-bin", "zen-alpha", "isolated web co", "webextensions", "rdd process", "utility process", "privileged cont"],
+    "firefox": ["firefox", "firefox-bin", "isolated web co", "webextensions", "rdd process"],
+    "brave-browser": ["brave", "chrome_crashpad"],
+    "chromium": ["chromium", "chrome"],
+    "google-chrome": ["chrome", "google-chrome"],
+    "spotify": ["spotify"],
+    "discord": ["discord", "discordptb", "discordcanary", "vesktop", "electron"],
+    "vesktop": ["vesktop", "electron"],
+    "code": ["code", "code-oss", "electron"],
+    "kitty": ["kitty"],
+    "steam": ["steam", "steamwebhelper"],
+}
+
+
 def app_name(cls):
-    """a window class as people say it: "brave-browser" -> "Brave Browser", "org.kde.dolphin" -> "Dolphin" """
     last = cls.split(".")[-1] if "." in cls else cls
+    low = last.lower()
+    if low in ("zen", "zen-alpha", "zen-bin"):
+        return "Zen Browser"
     return " ".join(w[:1].upper() + w[1:] for w in last.replace("_", "-").split("-") if w) or cls
 
 
+def _tokens_for_class(cls):
+    low = cls.lower().strip()
+    last = low.split(".")[-1] if "." in low else low
+    toks = set(CLASS_ALIASES.get(last, []))
+    for part in re.split(r"[-_.\s]+", last):
+        if len(part) >= 3 and part not in ("org", "com", "net", "app", "bin", "desktop", "browser"):
+            toks.add(part)
+    return toks
+
+
 def group_apps(rows_by_pid, children):
-    """one entry per open app (window class): its windows' processes and everything they started"""
+    """Group open Hyprland windows + descendant & class-matched processes into App bubbles."""
     apps = {}
     for w in open_windows():
-        if w["pid"] <= 0:
-            continue
-        a = apps.setdefault(w["cls"], {"cls": w["cls"], "name": app_name(w["cls"]), "windows": 0, "ws": [], "titles": [], "pids": set()})
+        a = apps.setdefault(w["cls"], {
+            "cls": w["cls"],
+            "name": app_name(w["cls"]),
+            "windows": 0,
+            "ws": [],
+            "titles": [],
+            "pids": set(),
+            "tokens": _tokens_for_class(w["cls"]),
+        })
         a["windows"] += 1
         if w["ws"] and w["ws"] not in a["ws"]:
             a["ws"].append(w["ws"])
-        a["titles"].append(w["title"])
-        stack = [w["pid"]]
-        while stack:
-            pid = stack.pop()
+        if w["title"]:
+            a["titles"].append(w["title"])
+        if w["pid"] > 0:
+            stack = [w["pid"]]
+            while stack:
+                pid = stack.pop()
+                if pid in a["pids"]:
+                    continue
+                a["pids"].add(pid)
+                stack.extend(children.get(pid, ()))
+
+    # Secondary match for reparented workers (Electron, Gecko/Zen, Flatpak, wrapper scripts)
+    all_rows = list(rows_by_pid.values())
+    for a in apps.values():
+        toks = a["tokens"]
+        if not toks:
+            continue
+        for r in all_rows:
+            pid = r["pid"]
             if pid in a["pids"]:
                 continue
-            a["pids"].add(pid)
-            stack.extend(children.get(pid, ()))
+            nm = r["name"].lower()
+            cmd = r["cmd"].lower()
+            if any(t in nm or (len(t) >= 4 and t in cmd) for t in toks):
+                a["pids"].add(pid)
+                stack = list(children.get(pid, ()))
+                while stack:
+                    cpid = stack.pop()
+                    if cpid not in a["pids"]:
+                        a["pids"].add(cpid)
+                        stack.extend(children.get(cpid, ()))
+
     out = []
     for a in apps.values():
         procs = [rows_by_pid[p] for p in a["pids"] if p in rows_by_pid]
         procs.sort(key=lambda r: (r["cpu"], r["memMB"]), reverse=True)
-        out.append({"cls": a["cls"], "name": a["name"], "windows": a["windows"], "ws": a["ws"], "titles": a["titles"][:4],
-                    "cpu": min(100.0, sum(r["cpu"] for r in procs)), "memMB": sum(r["memMB"] for r in procs),
-                    "procCount": len(procs),
-                    "procs": [{"pid": r["pid"], "name": r["name"], "cpu": r["cpu"], "memMB": r["memMB"]} for r in procs[:8]]})
-    out.sort(key=lambda a: a["cpu"], reverse=True)
+        out.append({
+            "cls": a["cls"],
+            "name": a["name"],
+            "windows": a["windows"],
+            "ws": a["ws"],
+            "titles": a["titles"][:4],
+            "pids": [r["pid"] for r in procs],
+            "cpu": min(100.0, sum(r["cpu"] for r in procs)),
+            "memMB": sum(r["memMB"] for r in procs),
+            "procCount": len(procs),
+            "procs": [{"pid": r["pid"], "name": r["name"], "cpu": r["cpu"], "memMB": r["memMB"]} for r in procs[:10]],
+        })
+    out.sort(key=lambda a: (a["cpu"], a["memMB"]), reverse=True)
     return out
 
 
 def disks():
-    """the mounted drives (each device once): [{"mount", "usedGB", "totalGB"}]"""
     out, seen = [], set()
     for part in psutil.disk_partitions(all=False):
         if part.device in seen or part.fstype in ("squashfs", "tmpfs") or part.mountpoint.startswith(("/boot", "/snap")):
@@ -150,7 +234,7 @@ class Sampler:
         self.last_net = psutil.net_io_counters()
         self.last_disk = psutil.disk_io_counters()
         self.last_t = time.time()
-        psutil.cpu_percent(percpu=True)  # prime
+        psutil.cpu_percent(percpu=True)
 
     @staticmethod
     def busiest_iface():
@@ -185,7 +269,7 @@ class Sampler:
             children.setdefault(p.info["ppid"], []).append(pid)
             proc = self.procs.setdefault(pid, p)
             try:
-                cpu = proc.cpu_percent(None)  # the first call per process returns 0.0
+                cpu = proc.cpu_percent(None)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
             mem = p.info["memory_info"]
@@ -199,15 +283,14 @@ class Sampler:
                 "state": "T" if p.info["status"] == psutil.STATUS_STOPPED else ("R" if cpu > 5 else "S"),
             })
         self.procs = {k: v for k, v in self.procs.items() if k in alive}
-        rows.sort(key=lambda r: r["cpu"], reverse=True)
-        apps = group_apps({r["pid"]: r for r in rows}, children)
+        rows.sort(key=lambda r: (r["cpu"], r["memMB"]), reverse=True)
+        rows_by_pid = {r["pid"]: r for r in rows}
+        apps = group_apps(rows_by_pid, children)
         top = rows[:TOP_N]
         for r in top:
             r.update(proc_detail(self.procs[r["pid"]]))
 
         gb = 1024 ** 3
-        # Apps (what programs hold), Free (nothing in it) and Cache (the rest: files kept in memory, given back when
-        # needed) add up to the whole
         apps_gb, free_gb = (vm.total - vm.available) / gb, vm.free / gb
         cache = max(0.0, vm.total / gb - apps_gb - free_gb)
         try:
@@ -244,13 +327,13 @@ class Sampler:
 def main():
     interval = float(sys.argv[1]) if len(sys.argv) > 1 else 1.0
     sampler = Sampler()
-    time.sleep(min(interval, 0.5))  # let the first cpu_percent calls have something to measure
+    time.sleep(min(interval, 0.5))
     while True:
         try:
             print(json.dumps(sampler.collect()), flush=True)
         except BrokenPipeError:
             return
-        except Exception as e:  # keep going if one sample fails
+        except Exception as e:
             print(json.dumps({"error": str(e)}), flush=True)
         time.sleep(interval)
 

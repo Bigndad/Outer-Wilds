@@ -16,6 +16,8 @@ GlyphCard {
     property real endAt: 0
     property bool blink: false
     readonly property int stepMin: Math.max(1, Math.round(cfg.stepMin || 5))
+    readonly property real progress: total > 0 ? Math.max(0, Math.min(1, remain / total)) : 0
+    readonly property string progressLabel: mmss(remain)
     readonly property color liveCol: (cfg.activeColor && cfg.activeColor !== "") ? cfg.activeColor : GlyphTheme.red
 
     onCfgChanged: {

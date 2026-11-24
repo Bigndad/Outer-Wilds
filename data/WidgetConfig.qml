@@ -92,6 +92,14 @@ QtObject {
           settings: [
               { key: "font",     type: "font",   label: "Font",           default: "monospace" }
           ] },
+        { source: "PowerWidget.qml",             name: "Power controls",        group: "Outer Wilds",  designW: 276, title: "POWER",
+          settings: [
+              { key: "requireConfirm", type: "toggle", label: "Confirm before action", default: true },
+              { key: "showLabels",     type: "toggle", label: "Show button labels",    default: true },
+              { key: "dangerColor",    type: "color",  label: "Danger accent",         default: "#E85D3F" },
+              { key: "lockCmd",        type: "text",   label: "Custom lock command",   default: "" },
+              { key: "font",           type: "font",   label: "Font",                  default: "monospace" }
+          ] },
         { source: "NotesWidget.qml",             name: "Notes",                 group: "Outer Wilds",  designW: 280,
           settings: [
               { key: "placeholder", type: "text",   label: "Placeholder",     default: "quick notes..." },
@@ -138,14 +146,15 @@ QtObject {
           ] },
         { source: "WeatherWidget.qml",           name: "Weather",               group: "Outer Wilds", designW: 280, title: "WEATHER",
           settings: [
-              { key: "autoLocation", type: "toggle", label: "Auto-detect location", default: true },
-              { key: "lat",         type: "number", label: "Latitude",          min: -90, max: 90, step: 0.01, default: 18.91 },
-              { key: "lon",         type: "number", label: "Longitude",         min: -180, max: 180, step: 0.01, default: 72.81 },
-              { key: "unit",        type: "choice", label: "Temperature unit",  choices: [{ value: "C", label: "°C" }, { value: "F", label: "°F" }], default: "C" },
-              { key: "windUnit",    type: "choice", label: "Wind unit",         choices: ["km/h", "m/s", "mph"], default: "km/h" },
-              { key: "showWind",    type: "toggle", label: "Show wind",         default: true },
-              { key: "refreshMin",  type: "number", label: "Refresh interval",  min: 5, max: 120, step: 5, unit: "min", default: 15 },
-              { key: "accentColor", type: "color",  label: "Accent colour",     default: "#FF6347" }
+              { key: "autoLocation", type: "toggle", label: "Auto-detect location",          default: true },
+              { key: "location",     type: "text",   label: "Manual location (city or lat,lon)", default: "" },
+              { key: "lat",          type: "number", label: "Fallback latitude",             min: -90, max: 90, step: 0.01, default: 18.91 },
+              { key: "lon",          type: "number", label: "Fallback longitude",            min: -180, max: 180, step: 0.01, default: 72.81 },
+              { key: "unit",         type: "choice", label: "Temperature unit",              choices: [{ value: "C", label: "°C" }, { value: "F", label: "°F" }], default: "C" },
+              { key: "windUnit",     type: "choice", label: "Wind unit",                     choices: ["km/h", "m/s", "mph"], default: "km/h" },
+              { key: "showWind",     type: "toggle", label: "Show wind",                     default: true },
+              { key: "refreshMin",   type: "number", label: "Refresh interval",              min: 5, max: 120, step: 5, unit: "min", default: 15 },
+              { key: "accentColor",  type: "color",  label: "Accent colour",                 default: "#FF6347" }
           ] },
         { source: "BlankWidget.qml",             name: "Blank placeholder",     group: "Outer Wilds",   designW: 240,
           settings: [
@@ -641,11 +650,29 @@ QtObject {
     property var pinnedIds: ({})
     property int pinnedCount: 0
     property var pinnedHosts: ({})
+    property var lockedPins: ({})
+    property int lockedPinCount: 0
     property bool pinDimEnabled: true
     property string pinDimScope: "planet"
     property real pinDimOpacity: 0.25
     property real pinScale: 1.2
     property string pinOutlineColor: "#D4AF37"
+    property string pinLockOutlineColor: "#6FEAEE"
+    property bool tabHeld: false
+    property var pinOrbitOverrides: ({})
+    property bool pinOrbitDefault: true
+    // runtime-only live progress bus (never saved to widgets.json)
+    property var progressBus: ({})
+    property real mediaPos: 0
+    property real mediaLen: 0
+    property bool mediaPlaying: false
+    property real mediaStamp: 0
+    property int progressTick: 0
+    // ---- notifications (Ship Log) ----
+    property bool notifAutoHide: true
+    property real notifHideSec: 2.4
+    property bool notifAutoArchive: true
+    property int notifArchiveHours: 24
     // ---- Satellite HUD individual options ----
     property bool hudShowGauges: true
     property bool hudShowAstronaut: true
@@ -662,6 +689,14 @@ QtObject {
     property bool hudShowPrompts: true
     property string hudTextColor: "#F2EBDD"
     property string hudFont: "monospace"
+    // ---- 3D Bubbles physics & display options ----
+    property real bubbleGravity: 0.16
+    property real bubbleOrbitPull: 0.45
+    property real bubbleHubSpacing: 155.0
+    property real bubbleGroupAttract: 0.55
+    property int bubbleMaxProcs: 28
+    property real bubbleSphereSize: 1.0
+
     // ---- named layout presets ----
     property var presets: ({})
 
@@ -680,12 +715,15 @@ QtObject {
         spaceDrift: true, driftCruise: 80.0, lockOrbitK: 6.5, lookSens: 1.0, uiScrollSens: 1.0, defaultTimeScale: 1.0,
         widgetOpacity: 1.0, widgetRadius: 6.0, widgetAccent: "#D4AF37",
         widgetHoldOnHover: true, widgetBrackets: true,
-        pinDimEnabled: true, pinDimScope: "planet", pinDimOpacity: 0.25, pinScale: 1.2, pinOutlineColor: "#D4AF37",
+        pinDimEnabled: true, pinDimScope: "planet", pinDimOpacity: 0.25, pinScale: 1.2, pinOutlineColor: "#D4AF37", pinLockOutlineColor: "#6FEAEE", pinOrbitDefault: true,
+        notifAutoHide: true, notifHideSec: 2.4, notifAutoArchive: true, notifArchiveHours: 24,
         nativeBg: "", nativeSurface: "", nativeText: "", nativeDim: "", nativeAccent: "", nativeFont: "",
         nativePlanetTheme: true, nativeLayers: true, nativeOpacity: 0.94,
         glyphBg: "", glyphBorder: "", glyphOff: "", glyphFg: "", glyphAccent: "", glyphFont: "",
         lucidBg: "", lucidText: "", lucidAccent: "", lucidFont: "",
-        serpSurface: "", serpText: "", serpAccent: "", serpOpacity: 0.92, serpRadius: 8, serpFont: ""
+        serpSurface: "", serpText: "", serpAccent: "", serpOpacity: 0.92, serpRadius: 8, serpFont: "",
+        bubbleGravity: 0.16, bubbleOrbitPull: 0.45, bubbleHubSpacing: 155.0,
+        bubbleGroupAttract: 0.55, bubbleMaxProcs: 28, bubbleSphereSize: 1.0
     })
     property string focusPlanet: ""          // the planet the camera is targeting / locked on ("" = none); set by KeyHost
     property string panelTab: "widgets"      // settings panel tab: widgets | keys | options
@@ -1000,24 +1038,144 @@ QtObject {
     }
 
     function isPinned(id) { revision; return pinnedIds[id] === true; }
+    function isPinLocked(id) { revision; return pinnedIds[id] === true && lockedPins[id] !== undefined; }
     function _recountPins(m) {
         let n = 0;
         for (const k in m) if (m[k] === true) n++;
         return n;
     }
+    function _recountLocks(m) {
+        let n = 0;
+        for (const k in m) if (m[k] !== undefined && m[k] !== false && m[k] !== null) n++;
+        return n;
+    }
+    function _cleanLocks(lm, pm) {
+        const out = {};
+        if (!lm || typeof lm !== "object") return out;
+        for (const k in lm) if (pm[k] === true && lm[k]) out[k] = _clone(lm[k]);
+        return out;
+    }
     function setPinned(id, v) {
         const m = _clone(pinnedIds);
-        if (v) m[id] = true; else delete m[id];
+        const lm = _clone(lockedPins);
+        if (v) m[id] = true;
+        else { delete m[id]; delete lm[id]; }
         pinnedIds = m;
         pinnedCount = _recountPins(m);
+        lockedPins = lm;
+        lockedPinCount = _recountLocks(lm);
         _bump(true);
     }
+    function setPinLocked(id, locked, posObj) {
+        const m = _clone(pinnedIds);
+        const lm = _clone(lockedPins);
+        if (locked) {
+            m[id] = true;
+            lm[id] = (posObj && typeof posObj === "object") ? posObj : true;
+        } else {
+            delete lm[id];
+        }
+        pinnedIds = m;
+        pinnedCount = _recountPins(m);
+        lockedPins = lm;
+        lockedPinCount = _recountLocks(lm);
+        _bump(true);
+    }
+    function togglePinLock(id, posObj) { setPinLocked(id, !isPinLocked(id), posObj); }
+    function updatePinLockAngle(id, ang) {
+        if (pinnedIds[id] !== true || lockedPins[id] === undefined || !isFinite(ang)) return;
+        const lm = _clone(lockedPins);
+        lm[id] = { angle: ang };
+        lockedPins = lm;
+        if (!_quiet) _saveTimer.restart();
+    }
     function togglePin(id) { setPinned(id, pinnedIds[id] !== true); }
+    function cyclePin(id) {
+        if (!isPinned(id)) setPinned(id, true);
+        else if (!isPinLocked(id)) setPinLocked(id, true);
+        else setPinned(id, false);
+    }
     function unpinAll() {
-        if (pinnedCount === 0) return;
+        if (pinnedCount === 0 && lockedPinCount === 0) return;
         pinnedIds = ({});
         pinnedCount = 0;
+        lockedPins = ({});
+        lockedPinCount = 0;
         _bump(true);
+    }
+
+    readonly property var _progressMap: ({
+        "LoopWidget.qml": "loop",
+        "TodoWidget.qml": "todo",
+        "ClockWidget.qml": "clock",
+        "DateWorldWidget.qml": "date",
+        "RumorWidget.qml": "rumor",
+        "SignalscopeWidget.qml": "media",
+        "serp/SunClock.qml": "clock",
+        "serp/AshTwinBattery.qml": "battery",
+        "serp/EmberTwinBattery.qml": "battery",
+        "serp/EmberTwinMusic.qml": "media",
+        "serp/EmberTwinLyrics.qml": "media",
+        "serp/DarkBrambleDisc.qml": "media",
+        "serp/DarkBrambleLyrics.qml": "media",
+        "serp/SunStationCpu.qml": "cpu",
+        "serp/BrittleHollowRam.qml": "ram",
+        "serp/BrittleHollowDisk.qml": "disk",
+        "serp/HollowsLanternTemp.qml": "temp",
+        "serp/AshTwinTimer.qml": "pomo",
+        "serp/GiantsDeepTimer.qml": "timer",
+        "serp/GiantsDeepStopwatch.qml": "stopwatch",
+        "serp/AnserinClockDigital.qml": "clock",
+        "serp/AnserinClockMaterial.qml": "clock",
+        "serp/AnserinClockMinimal.qml": "clock",
+        "serp/AnserinClockLockscreen.qml": "clock",
+        "serp/AnserinClockStretched.qml": "clock",
+        "glyph/GlyphClock.qml": "clock",
+        "glyph/GlyphCal.qml": "date",
+        "glyph/GlyphDate.qml": "date",
+        "glyph/GlyphFocus.qml": "glyphFocus",
+        "glyph/GlyphCpu.qml": "cpu",
+        "glyph/GlyphRam.qml": "ram",
+        "glyph/GlyphGpu.qml": "gpu",
+        "glyph/GlyphSystem.qml": "cpu",
+        "glyph/GlyphDisk.qml": "disk",
+        "glyph/GlyphBattery.qml": "battery",
+        "glyph/GlyphVolume.qml": "volume",
+        "glyph/GlyphPlayer.qml": "media",
+        "lucid/SunClock.qml": "clock",
+        "lucid/BrittleHollowCalendar.qml": "date",
+        "lucid/EmberTwinBattery.qml": "battery",
+        "lucid/AshTwinBattery.qml": "battery"
+    })
+    function progressKind(source) { return _progressMap[String(source || "")] || ""; }
+    function supportsPinOrbit(source) { return progressKind(source) !== ""; }
+    function pinOrbitEnabled(id) {
+        revision;
+        return pinOrbitOverrides[id] !== undefined ? (pinOrbitOverrides[id] === true) : pinOrbitDefault;
+    }
+    function setPinOrbit(id, v) {
+        const b = v === true;
+        const m = _clone(pinOrbitOverrides);
+        if (b === pinOrbitDefault) delete m[id]; else m[id] = b;
+        pinOrbitOverrides = m;
+        _bump(true);
+    }
+    function togglePinOrbit(id) { setPinOrbit(id, !pinOrbitEnabled(id)); }
+    function setProgress(key, val) {
+        const n = Number(val);
+        if (!isFinite(n)) return;
+        const c = Math.max(0, Math.min(1, n));
+        const prev = progressBus[key];
+        if (prev !== undefined && Math.abs(prev - c) < 0.002) return;
+        progressBus[key] = c;
+        progressTick++;
+    }
+    function setMediaProgress(pos, len, playing) {
+        mediaPos = isFinite(pos) && pos >= 0 ? pos : 0;
+        mediaLen = isFinite(len) && len > 0 ? len : 0;
+        mediaPlaying = playing === true;
+        mediaStamp = Date.now();
+        progressTick++;
     }
 
     function resetAll() {
@@ -1025,6 +1183,9 @@ QtObject {
         extras = [];
         pinnedIds = ({});
         pinnedCount = 0;
+        lockedPins = ({});
+        lockedPinCount = 0;
+        pinOrbitOverrides = ({});
         globalSpeed = 1.0;
         previewId = "";
         _bump(true);
@@ -1078,7 +1239,13 @@ QtObject {
             o[id] = { removed: true };          // other edits are dropped: restoring brings back the original
         }
         overrides = o;
-        if (pinnedIds[id]) { const pm = _clone(pinnedIds); delete pm[id]; pinnedIds = pm; pinnedCount = _recountPins(pm); }
+        if (pinnedIds[id] || lockedPins[id]) {
+            const pm = _clone(pinnedIds); delete pm[id]; pinnedIds = pm; pinnedCount = _recountPins(pm);
+            const lm = _clone(lockedPins); delete lm[id]; lockedPins = lm; lockedPinCount = _recountLocks(lm);
+        }
+        if (pinOrbitOverrides[id] !== undefined) {
+            const om = _clone(pinOrbitOverrides); delete om[id]; pinOrbitOverrides = om;
+        }
         if (previewId === id) previewId = "";
         _bump(true);
     }
@@ -1218,6 +1385,7 @@ QtObject {
             if ((host === planet || d.host === planet) && ov) { delete o[d.id]; n++; }
         }
         const pm = _clone(pinnedIds);
+        const lm = _clone(lockedPins);
         let pinChanged = false;
         const keep = [];
         for (let i = 0; i < extras.length; i++) {
@@ -1225,13 +1393,13 @@ QtObject {
             const host = (ov && ov.host !== undefined) ? ov.host : x.host;
             if (host === planet) {
                 delete o[x.id];
-                if (pm[x.id]) { delete pm[x.id]; pinChanged = true; }
+                if (pm[x.id] || lm[x.id]) { delete pm[x.id]; delete lm[x.id]; pinChanged = true; }
                 n++;
             } else keep.push(x);
         }
         overrides = o;
         extras = keep;
-        if (pinChanged) { pinnedIds = pm; pinnedCount = _recountPins(pm); }
+        if (pinChanged) { pinnedIds = pm; pinnedCount = _recountPins(pm); lockedPins = lm; lockedPinCount = _recountLocks(lm); }
         previewId = "";
         _bump(true);
         return n;
@@ -1245,6 +1413,8 @@ QtObject {
             if (!isFinite(v)) return;
             if (key === "pinDimOpacity") v = Math.max(0.05, Math.min(1.0, v));
             else if (key === "pinScale") v = Math.max(1.0, Math.min(2.5, v));
+            else if (key === "notifHideSec") v = Math.max(0.5, Math.min(30.0, v));
+            else if (key === "notifArchiveHours") v = Math.max(1, Math.min(720, Math.round(v)));
             else if (key === "pinDimScope") { if (v !== "planet" && v !== "everywhere") return; }
             else if (key === "fpsIdle") { v = Math.round(v); if (v !== 0 && v !== 15 && v !== 20 && v !== 30 && v !== 60) return; }
             else if (key === "sensorMs") { v = Math.round(v); if (v !== 2000 && v !== 3000 && v !== 5000) return; }
@@ -1256,6 +1426,12 @@ QtObject {
             else if (key === "uiScrollSens") v = Math.max(0.2, Math.min(5.0, v));
             else if (key === "defaultTimeScale") v = Math.max(0.1, v);
             else if (key === "hudGaugeScale" || key === "hudGlobeScale" || key === "hudThrustScale") v = Math.max(0.5, Math.min(1.8, v));
+            else if (key === "bubbleGravity") v = Math.max(0.0, Math.min(1.5, v));
+            else if (key === "bubbleOrbitPull") v = Math.max(0.0, Math.min(2.0, v));
+            else if (key === "bubbleHubSpacing") v = Math.max(70.0, Math.min(340.0, v));
+            else if (key === "bubbleGroupAttract") v = Math.max(0.0, Math.min(2.0, v));
+            else if (key === "bubbleMaxProcs") v = Math.max(8, Math.min(64, Math.round(v)));
+            else if (key === "bubbleSphereSize") v = Math.max(0.5, Math.min(2.0, v));
         } else if (typeof uiDefaults[key] === "boolean") {
             v = val === true;
         } else {
@@ -1293,14 +1469,17 @@ QtObject {
             reticleOpacity: reticleOpacity, reticleWidth: reticleWidth, loopPanelOpacity: loopPanelOpacity,
             loopPanelScale: loopPanelScale, widgetOpacity: widgetOpacity, widgetRadius: widgetRadius,
             widgetAccent: widgetAccent, widgetHoldOnHover: widgetHoldOnHover, widgetBrackets: widgetBrackets,
-            pinDimEnabled: pinDimEnabled, pinDimScope: pinDimScope, pinDimOpacity: pinDimOpacity, pinScale: pinScale, pinOutlineColor: pinOutlineColor,
+            pinDimEnabled: pinDimEnabled, pinDimScope: pinDimScope, pinDimOpacity: pinDimOpacity, pinScale: pinScale, pinOutlineColor: pinOutlineColor, pinLockOutlineColor: pinLockOutlineColor, pinOrbitDefault: pinOrbitDefault,
+            notifAutoHide: notifAutoHide, notifHideSec: notifHideSec, notifAutoArchive: notifAutoArchive, notifArchiveHours: notifArchiveHours,
             nativeBg: nativeBg, nativeSurface: nativeSurface, nativeText: nativeText, nativeDim: nativeDim,
             nativeAccent: nativeAccent, nativeFont: nativeFont, nativePlanetTheme: nativePlanetTheme,
             nativeLayers: nativeLayers, nativeOpacity: nativeOpacity,
             glyphBg: glyphBg, glyphBorder: glyphBorder, glyphOff: glyphOff, glyphFg: glyphFg,
             glyphAccent: glyphAccent, glyphFont: glyphFont, lucidBg: lucidBg, lucidText: lucidText,
             lucidAccent: lucidAccent, lucidFont: lucidFont, serpSurface: serpSurface, serpText: serpText,
-            serpAccent: serpAccent, serpOpacity: serpOpacity, serpRadius: serpRadius, serpFont: serpFont
+            serpAccent: serpAccent, serpOpacity: serpOpacity, serpRadius: serpRadius, serpFont: serpFont,
+            bubbleGravity: bubbleGravity, bubbleOrbitPull: bubbleOrbitPull, bubbleHubSpacing: bubbleHubSpacing,
+            bubbleGroupAttract: bubbleGroupAttract, bubbleMaxProcs: bubbleMaxProcs, bubbleSphereSize: bubbleSphereSize
         };
     }
 
@@ -1363,6 +1542,12 @@ QtObject {
         pinDimOpacity = typeof u.pinDimOpacity === "number" ? u.pinDimOpacity : 0.25;
         pinScale = typeof u.pinScale === "number" ? u.pinScale : 1.2;
         pinOutlineColor = typeof u.pinOutlineColor === "string" && u.pinOutlineColor !== "" ? u.pinOutlineColor : "#D4AF37";
+        pinLockOutlineColor = typeof u.pinLockOutlineColor === "string" && u.pinLockOutlineColor !== "" ? u.pinLockOutlineColor : "#6FEAEE";
+        pinOrbitDefault = u.pinOrbitDefault !== false;
+        notifAutoHide = u.notifAutoHide !== false;
+        notifHideSec = typeof u.notifHideSec === "number" && u.notifHideSec >= 0.5 ? Math.min(30.0, u.notifHideSec) : 2.4;
+        notifAutoArchive = u.notifAutoArchive !== false;
+        notifArchiveHours = typeof u.notifArchiveHours === "number" && u.notifArchiveHours >= 1 ? Math.min(720, Math.round(u.notifArchiveHours)) : 24;
         nativeBg = typeof u.nativeBg === "string" ? u.nativeBg : "";
         nativeSurface = typeof u.nativeSurface === "string" ? u.nativeSurface : "";
         nativeText = typeof u.nativeText === "string" ? u.nativeText : "";
@@ -1388,6 +1573,12 @@ QtObject {
         serpOpacity = typeof u.serpOpacity === "number" ? u.serpOpacity : 0.92;
         serpRadius = typeof u.serpRadius === "number" ? u.serpRadius : 8;
         serpFont = typeof u.serpFont === "string" ? u.serpFont : "";
+        bubbleGravity = typeof u.bubbleGravity === "number" ? Math.max(0.0, Math.min(1.5, u.bubbleGravity)) : 0.16;
+        bubbleOrbitPull = typeof u.bubbleOrbitPull === "number" ? Math.max(0.0, Math.min(2.0, u.bubbleOrbitPull)) : 0.45;
+        bubbleHubSpacing = typeof u.bubbleHubSpacing === "number" ? Math.max(70, Math.min(340, u.bubbleHubSpacing)) : 155.0;
+        bubbleGroupAttract = typeof u.bubbleGroupAttract === "number" ? Math.max(0.0, Math.min(2.0, u.bubbleGroupAttract)) : 0.55;
+        bubbleMaxProcs = typeof u.bubbleMaxProcs === "number" ? Math.max(8, Math.min(64, Math.round(u.bubbleMaxProcs))) : 28;
+        bubbleSphereSize = typeof u.bubbleSphereSize === "number" ? Math.max(0.5, Math.min(2.0, u.bubbleSphereSize)) : 1.0;
     }
 
     function presetNames() {
@@ -1401,6 +1592,8 @@ QtObject {
             overrides: _clone(overrides),
             extras: _clone(extras),
             pinned: _clone(pinnedIds),
+            lockedPins: _clone(lockedPins),
+            pinOrbits: _clone(pinOrbitOverrides),
             ui: _uiDict()
         };
     }
@@ -1412,6 +1605,9 @@ QtObject {
         globalSpeed = typeof snap.globalSpeed === "number" ? snap.globalSpeed : 1.0;
         pinnedIds = (snap.pinned && typeof snap.pinned === "object") ? _clone(snap.pinned) : ({});
         pinnedCount = _recountPins(pinnedIds);
+        lockedPins = _cleanLocks(snap.lockedPins, pinnedIds);
+        lockedPinCount = _recountLocks(lockedPins);
+        pinOrbitOverrides = (snap.pinOrbits && typeof snap.pinOrbits === "object") ? _clone(snap.pinOrbits) : ({});
         if (snap.ui && typeof snap.ui === "object") _applyUiDict(snap.ui);
         previewId = "";
         _bump(true);
@@ -1471,6 +1667,8 @@ QtObject {
             overrides: (data.overrides && typeof data.overrides === "object") ? _clone(data.overrides) : ({}),
             extras: Array.isArray(data.extras) ? _clone(data.extras) : [],
             pinned: (data.pinned && typeof data.pinned === "object") ? _clone(data.pinned) : ({}),
+            lockedPins: (data.lockedPins && typeof data.lockedPins === "object") ? _clone(data.lockedPins) : ({}),
+            pinOrbits: (data.pinOrbits && typeof data.pinOrbits === "object") ? _clone(data.pinOrbits) : ({}),
             ui: (data.ui && typeof data.ui === "object") ? _clone(data.ui) : ({})
         };
         presets = p;
@@ -1482,7 +1680,7 @@ QtObject {
     function serialize() {
         return JSON.stringify({
             version: 1, globalSpeed: globalSpeed, overrides: overrides, extras: extras,
-            pinned: pinnedIds, presets: presets, keys: keyOverrides, ui: _uiDict()
+            pinned: pinnedIds, lockedPins: lockedPins, pinOrbits: pinOrbitOverrides, presets: presets, keys: keyOverrides, ui: _uiDict()
         }, null, 2);
     }
 
@@ -1499,6 +1697,9 @@ QtObject {
         keyOverrides = (obj && obj.keys && typeof obj.keys === "object") ? obj.keys : ({});
         pinnedIds = (obj && obj.pinned && typeof obj.pinned === "object") ? obj.pinned : ({});
         pinnedCount = _recountPins(pinnedIds);
+        lockedPins = _cleanLocks(obj ? obj.lockedPins : null, pinnedIds);
+        lockedPinCount = _recountLocks(lockedPins);
+        pinOrbitOverrides = (obj && obj.pinOrbits && typeof obj.pinOrbits === "object") ? obj.pinOrbits : ({});
         presets = (obj && obj.presets && typeof obj.presets === "object") ? obj.presets : ({});
         _applyUiDict((obj && obj.ui) ? obj.ui : {});
         loaded = true;

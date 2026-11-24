@@ -15,7 +15,27 @@ Item {
     readonly property bool inspectorOpen: root.tab === "widgets" && root.expandedId !== "" && !root.picking && root.inspEntry !== null
     readonly property bool inspectorShown: inspectorOpen || inspectorPanel.slide > 0.01
     readonly property var inspEntry: root.expandedId !== "" ? WidgetConfig.entry(root.expandedId) : null
-    readonly property alias mainPanelItem: mainPanel
+    readonly property alias mainPanelItem: mainHit
+    readonly property alias inspectorHitItem: inspHit
+
+    Item {
+        id: mainHit
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        width: WidgetConfig.panelOpen ? 420 : 0
+    }
+
+    Item {
+        id: inspHit
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.topMargin: 12
+        anchors.bottomMargin: 12
+        anchors.right: mainHit.left
+        anchors.rightMargin: 10
+        width: (root.inspectorOpen && WidgetConfig.panelOpen) ? 380 : 0
+    }
     property string inspectorTab: "orbit"    // orbit | card | options
     property real panelSlide: WidgetConfig.panelOpen ? 1.0 : 0.0
     Behavior on panelSlide { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -54,6 +74,7 @@ Item {
     readonly property string tab: WidgetConfig.panelTab
 
     property string expandedId: ""
+    onTabChanged: { if (tab !== "widgets" && expandedId !== "") { expandedId = ""; WidgetConfig.previewId = ""; } }
     property string query: ""
     property var collapsed: ({})
     property var optOpen: ({})
@@ -80,7 +101,27 @@ Item {
     onCapturingChanged: { WidgetConfig.capturingKeys = (capturing !== ""); capLone = ""; capHeld = ""; }
     property string keyMsg: ""
     property string presetMsg: ""
+    property bool confirmClearNotifs: false
+    property int textFocusCount: 0
+    readonly property bool isTyping: textFocusCount > 0
     focus: true
+
+    // Control Centre runs in its own exclusive-focus layer window, so it owns the toggle keys while open
+    Shortcut {
+        sequence: Keybinds.seq("edit")
+        enabled: WidgetConfig.panelOpen && root.capturing === "" && !root.isTyping && Keybinds.seq("edit") !== ""
+        autoRepeat: false
+        onActivated: root.closeRequested()
+    }
+    Shortcut {
+        sequence: Keybinds.seq("keys")
+        enabled: WidgetConfig.panelOpen && root.capturing === "" && !root.isTyping && Keybinds.seq("keys") !== ""
+        autoRepeat: false
+        onActivated: {
+            if (root.tab === "keys") root.closeRequested();
+            else root.setTab("keys");
+        }
+    }
 
     Keys.onPressed: (event) => {
         if (root.capturing !== "") {
@@ -107,6 +148,11 @@ Item {
             if (picking) picking = false;
             else if (expandedId !== "") { expandedId = ""; WidgetConfig.previewId = ""; }
             else root.closeRequested();
+            return;
+        }
+        if (!root.isTyping && Keybinds.matches("edit", event)) {
+            event.accepted = true;
+            root.closeRequested();
         }
     }
 
@@ -187,7 +233,7 @@ Item {
     Connections {
         target: WidgetConfig
         function onRevisionChanged() { structTimer.restart(); }
-        function onPanelOpenChanged() { if (!WidgetConfig.panelOpen) { root.capturing = ""; root.picking = false; } }
+        function onPanelOpenChanged() { if (!WidgetConfig.panelOpen) { root.capturing = ""; root.picking = false; root.expandedId = ""; root.confirmClearNotifs = false; root.forceActiveFocus(); } }
     }
     Component.onCompleted: { buildStructure(); buildPick(); }
 
@@ -200,7 +246,7 @@ Item {
 
     function toggleExpand(id) {
         capturing = ""; keyMsg = "";
-        if (expandedId === id) { expandedId = ""; WidgetConfig.previewId = ""; }
+        if (expandedId === id && inspectorOpen) { expandedId = ""; WidgetConfig.previewId = ""; }
         else { expandedId = id; WidgetConfig.previewId = id; inspectorTab = "orbit"; const e = WidgetConfig.entry(id); if (e) lastHost = e.host; }
     }
 
@@ -322,6 +368,7 @@ Item {
         onHeightChanged: requestPaint()
         onCornerRadiusChanged: requestPaint()
         onColChanged: requestPaint()
+        onVisibleChanged: if (visible) requestPaint()
         Component.onCompleted: requestPaint()
         onPaint: {
             const ctx = getContext("2d");
@@ -626,8 +673,11 @@ Item {
             font.pixelSize: 11
             selectByMouse: true
             clip: true
+            property bool _ft: false
+            function _st(v) { if (v && !_ft) { _ft = true; root.textFocusCount++; } else if (!v && _ft) { _ft = false; root.textFocusCount = Math.max(0, root.textFocusCount - 1); } }
+            Component.onDestruction: _st(false)
             onAccepted: { s.commitTyped(text); focus = false; }
-            onActiveFocusChanged: { if (activeFocus) selectAll(); else text = Qt.binding(() => s.text); }
+            onActiveFocusChanged: { _st(activeFocus); if (activeFocus) selectAll(); else text = Qt.binding(() => s.text); }
         }
         MouseArea {
             id: ma
@@ -696,8 +746,11 @@ Item {
             color: root.cCream
             font.family: root.mono
             font.pixelSize: 11
+            property bool _ft: false
+            function _st(v) { if (v && !_ft) { _ft = true; root.textFocusCount++; } else if (!v && _ft) { _ft = false; root.textFocusCount = Math.max(0, root.textFocusCount - 1); } }
+            Component.onDestruction: _st(false)
             onAccepted: { tf.edited(text); focus = false; }
-            onActiveFocusChanged: { if (!activeFocus) { if (text !== tf.value) tf.edited(text); text = Qt.binding(() => tf.value); } }
+            onActiveFocusChanged: { _st(activeFocus); if (!activeFocus) { if (text !== tf.value) tf.edited(text); text = Qt.binding(() => tf.value); } }
         }
     }
 
@@ -827,6 +880,7 @@ Item {
         signal edited(string v)
 
         readonly property var filteredFonts: {
+            if (!open) return [];
             const q = filter.trim().toLowerCase();
             const out = [];
             if (allowBlank && (q === "" || "default".indexOf(q) >= 0)) out.push("");
@@ -889,6 +943,10 @@ Item {
                     verticalAlignment: TextInput.AlignVCenter; clip: true
                     color: root.cCream; font.family: root.mono; font.pixelSize: 11
                     text: fp.filter
+                    property bool _ft: false
+                    function _st(v) { if (v && !_ft) { _ft = true; root.textFocusCount++; } else if (!v && _ft) { _ft = false; root.textFocusCount = Math.max(0, root.textFocusCount - 1); } }
+                    Component.onDestruction: _st(false)
+                    onActiveFocusChanged: _st(activeFocus)
                     onTextChanged: fp.filter = text
                 }
             }
@@ -1002,8 +1060,11 @@ Item {
                 clip: true; selectByMouse: true
                 text: cp.value
                 color: root.cCream; font.family: root.mono; font.pixelSize: 11
+                property bool _ft: false
+                function _st(v) { if (v && !_ft) { _ft = true; root.textFocusCount++; } else if (!v && _ft) { _ft = false; root.textFocusCount = Math.max(0, root.textFocusCount - 1); } }
+                Component.onDestruction: _st(false)
                 onAccepted: { cp.edited(text.trim()); focus = false; }
-                onActiveFocusChanged: { if (!activeFocus) { if (text.trim() !== cp.value) cp.edited(text.trim()); text = Qt.binding(() => cp.value); } }
+                onActiveFocusChanged: { _st(activeFocus); if (!activeFocus) { if (text.trim() !== cp.value) cp.edited(text.trim()); text = Qt.binding(() => cp.value); } }
             }
             Text {
                 visible: cp.value === "" && !cpIn.activeFocus
@@ -1180,6 +1241,10 @@ Item {
             anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 26
             verticalAlignment: TextInput.AlignVCenter
             color: root.cCream; selectionColor: root.cGold; font.family: root.mono; font.pixelSize: 12; clip: true
+            property bool _ft: false
+            function _st(v) { if (v && !_ft) { _ft = true; root.textFocusCount++; } else if (!v && _ft) { _ft = false; root.textFocusCount = Math.max(0, root.textFocusCount - 1); } }
+            Component.onDestruction: _st(false)
+            onActiveFocusChanged: _st(activeFocus)
             Keys.onEscapePressed: (event) => { if (ti.text !== "") { ti.text = ""; event.accepted = true; } else event.accepted = false; }
         }
         Text {
@@ -1271,6 +1336,7 @@ Item {
         anchors.rightMargin: -(1.0 - root.panelSlide) * 440
         width: 420
         opacity: root.panelSlide
+        layer.enabled: root.panelSlide > 0.001 && root.panelSlide < 0.999
         color: "#F5070911"
         radius: 12
         clip: true
@@ -1391,7 +1457,7 @@ Item {
                     color: "#20D4AF37"; border.width: 1; border.color: "#55D4AF37"
                     Text {
                         x: 10; anchors.verticalCenter: parent.verticalCenter
-                        text: "◈  " + WidgetConfig.pinnedCount + " pinned  ·  others dimmed"
+                        text: "◈  " + WidgetConfig.pinnedCount + " pinned" + (WidgetConfig.lockedPinCount > 0 ? " (" + WidgetConfig.lockedPinCount + " locked)" : "") + "  ·  others dimmed"
                         color: root.cGold; font.family: root.mono; font.pixelSize: 10
                     }
                     OWButton {
@@ -1435,7 +1501,7 @@ Item {
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
 
-                OWWheel { }
+                OWWheel { scrollTarget: flick }
 
                 Column {
                     id: listCol
@@ -1508,6 +1574,9 @@ Item {
                                     readonly property var d: WidgetConfig.entry(wid)
                                     readonly property bool open: root.expandedId === wid
                                     readonly property bool pinned: WidgetConfig.isPinned(wid)
+                                    readonly property bool pinLocked: WidgetConfig.isPinLocked(wid)
+                                    readonly property bool supportsOrbit: d !== null && WidgetConfig.supportsPinOrbit(d.source)
+                                    readonly property bool orbitOn: WidgetConfig.pinOrbitEnabled(wid)
                                     readonly property bool modified: d !== null && (WidgetConfig.overrides[wid] !== undefined || d._extra)
                                     width: del.width
                                     height: rowHead.height + 2
@@ -1534,27 +1603,39 @@ Item {
                                         }
                                         Text {
                                             x: 46; anchors.verticalCenter: parent.verticalCenter
-                                            width: parent.width - 46 - 92
+                                            width: parent.width - 46 - (row.supportsOrbit ? 114 : 92)
                                             text: row.d ? WidgetConfig.widgetName(row.d) : ""
                                             elide: Text.ElideRight
                                             color: row.d && row.d.enabled ? root.cCream : root.cOff
                                             font.family: root.mono; font.pixelSize: 12
                                         }
                                         MouseArea {
-                                            anchors.fill: parent; anchors.leftMargin: 40; anchors.rightMargin: 82
+                                            anchors.fill: parent; anchors.leftMargin: 40; anchors.rightMargin: row.supportsOrbit ? 104 : 82
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: root.toggleExpand(row.wid)
+                                        }
+                                        // Orbit progress toggle icon (only for applicable widgets)
+                                        Text {
+                                            visible: row.supportsOrbit && (row.pinned || rowHover.hovered || row.open)
+                                            anchors.right: parent.right; anchors.rightMargin: 78; anchors.verticalCenter: parent.verticalCenter
+                                            text: row.orbitOn ? "◎" : "○"
+                                            color: row.orbitOn ? (row.pinLocked ? WidgetConfig.pinLockOutlineColor : root.cGold) : (orbMa.containsMouse ? root.cCream : root.cDim)
+                                            font.family: root.mono; font.pixelSize: 13
+                                            MouseArea {
+                                                id: orbMa; anchors.fill: parent; anchors.margins: -6; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: WidgetConfig.togglePinOrbit(row.wid)
+                                            }
                                         }
                                         // Pin toggle icon
                                         Text {
                                             visible: row.pinned || rowHover.hovered || row.open
                                             anchors.right: parent.right; anchors.rightMargin: 56; anchors.verticalCenter: parent.verticalCenter
-                                            text: row.pinned ? "◈" : "◇"
-                                            color: row.pinned ? root.cGold : (pinMa.containsMouse ? root.cCream : root.cDim)
+                                            text: row.pinLocked ? "❖" : (row.pinned ? "◈" : "◇")
+                                            color: row.pinLocked ? WidgetConfig.pinLockOutlineColor : (row.pinned ? root.cGold : (pinMa.containsMouse ? root.cCream : root.cDim))
                                             font.family: root.mono; font.pixelSize: 13
                                             MouseArea {
                                                 id: pinMa; anchors.fill: parent; anchors.margins: -6; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                                onClicked: WidgetConfig.togglePin(row.wid)
+                                                onClicked: WidgetConfig.cyclePin(row.wid)
                                             }
                                         }
                                         // Remove icon
@@ -2044,6 +2125,47 @@ Item {
                         OWSlider { visible: WidgetConfig.pinDimEnabled; width: parent.width; from: 0.05; to: 1.0; step: 0.05; value: WidgetConfig.pinDimOpacity; text: Math.round(WidgetConfig.pinDimOpacity * 100) + "%"; onMoved: (v) => WidgetConfig.setUiOpt("pinDimOpacity", v) }
                         FieldHeader { label: "PIN OUTLINE COLOUR"; modified: WidgetConfig.isUiModified("pinOutlineColor"); onResetClicked: WidgetConfig.resetUiOption("pinOutlineColor") }
                         OWColorPicker { width: parent.width; allowBlank: false; defaultValue: "#D4AF37"; value: WidgetConfig.pinOutlineColor; onEdited: (v) => WidgetConfig.setUiOpt("pinOutlineColor", v) }
+                        FieldHeader { label: "LOCKED PIN OUTLINE COLOUR"; modified: WidgetConfig.isUiModified("pinLockOutlineColor"); onResetClicked: WidgetConfig.resetUiOption("pinLockOutlineColor") }
+                        OWColorPicker { width: parent.width; allowBlank: false; defaultValue: "#6FEAEE"; value: WidgetConfig.pinLockOutlineColor; onEdited: (v) => WidgetConfig.setUiOpt("pinLockOutlineColor", v) }
+                        OWToggleRow { label: "Progress orbits on pinned widgets"; on: WidgetConfig.pinOrbitDefault; modified: WidgetConfig.isUiModified("pinOrbitDefault"); onToggled: (v) => WidgetConfig.setUiOpt("pinOrbitDefault", v); onResetClicked: WidgetConfig.resetUiOption("pinOrbitDefault") }
+                        Text {
+                            width: parent.width; wrapMode: Text.Wrap
+                            text: "Double-click pins a widget. Tab + double-click a pinned widget to lock it in place. Pin icon cycles: pin → lock → unpin."
+                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                        }
+                    }
+
+                    // ---- 7b. NOTIFICATIONS (SHIP LOG) ----
+                    OptAccordion {
+                        optKey: "notifications"; title: "Notifications (Ship Log)"; subtitle: "Popup auto-hide, aging archives & clear log"
+
+                        OWToggleRow { label: "Auto-hide notification popups"; on: WidgetConfig.notifAutoHide; modified: WidgetConfig.isUiModified("notifAutoHide"); onToggled: (v) => WidgetConfig.setUiOpt("notifAutoHide", v); onResetClicked: WidgetConfig.resetUiOption("notifAutoHide") }
+                        FieldHeader { visible: WidgetConfig.notifAutoHide; label: "POPUP DURATION"; modified: WidgetConfig.isUiModified("notifHideSec"); onResetClicked: WidgetConfig.resetUiOption("notifHideSec") }
+                        OWSlider { visible: WidgetConfig.notifAutoHide; width: parent.width; from: 1.0; to: 10.0; step: 0.2; value: WidgetConfig.notifHideSec; text: WidgetConfig.notifHideSec.toFixed(1) + " s"; onMoved: (v) => WidgetConfig.setUiOpt("notifHideSec", v) }
+                        Text {
+                            visible: !WidgetConfig.notifAutoHide
+                            width: parent.width; wrapMode: Text.Wrap
+                            text: "Popups stay visible until you click them, dismiss them, or open the Ship Log."
+                            color: root.cDim; font.family: root.mono; font.pixelSize: 10
+                        }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        OWToggleRow { label: "Auto-archive old read rumors"; on: WidgetConfig.notifAutoArchive; modified: WidgetConfig.isUiModified("notifAutoArchive"); onToggled: (v) => WidgetConfig.setUiOpt("notifAutoArchive", v); onResetClicked: WidgetConfig.resetUiOption("notifAutoArchive") }
+                        FieldHeader { visible: WidgetConfig.notifAutoArchive; label: "ARCHIVE AFTER"; modified: WidgetConfig.isUiModified("notifArchiveHours"); onResetClicked: WidgetConfig.resetUiOption("notifArchiveHours") }
+                        OWSlider { visible: WidgetConfig.notifAutoArchive; width: parent.width; from: 1; to: 168; step: 1; value: WidgetConfig.notifArchiveHours; text: Math.round(WidgetConfig.notifArchiveHours) + " h"; onMoved: (v) => WidgetConfig.setUiOpt("notifArchiveHours", v) }
+
+                        Rectangle { width: parent.width; height: 1; color: root.cLine }
+                        OWButton {
+                            label: root.confirmClearNotifs ? "SURE? CLICK AGAIN" : ("CLEAR ALL NOTIFICATIONS (" + RumorData.notifications.length + ")")
+                            danger: root.confirmClearNotifs
+                            dim: RumorData.notifications.length === 0 && !root.confirmClearNotifs
+                            onClicked: {
+                                if (RumorData.notifications.length === 0) return;
+                                if (root.confirmClearNotifs) { RumorData.clear(); root.confirmClearNotifs = false; }
+                                else root.confirmClearNotifs = true;
+                            }
+                        }
+                        Timer { interval: 3000; running: root.confirmClearNotifs; onTriggered: root.confirmClearNotifs = false }
                     }
 
                     // ---- 8. WIDGET PACK THEMES ----
@@ -2129,6 +2251,10 @@ Item {
                                     anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 8
                                     verticalAlignment: TextInput.AlignVCenter; clip: true
                                     color: root.cCream; font.family: root.mono; font.pixelSize: 11
+                                    property bool _ft: false
+                                    function _st(v) { if (v && !_ft) { _ft = true; root.textFocusCount++; } else if (!v && _ft) { _ft = false; root.textFocusCount = Math.max(0, root.textFocusCount - 1); } }
+                                    Component.onDestruction: _st(false)
+                                    onActiveFocusChanged: _st(activeFocus)
                                     onAccepted: {
                                         if (WidgetConfig.savePreset(text)) { root.presetMsg = "Saved '" + text.trim() + "'"; text = ""; focus = false; }
                                     }
@@ -2183,6 +2309,43 @@ Item {
                                 }
                             }
                         }
+                    }
+
+                    // ---- 9b. 3D BUBBLES ----
+                    OptAccordion {
+                        optKey: "bubbles3d"; title: "3D Bubbles"; subtitle: "Cluster gravity, hub spacing, process cap & family grouping"
+
+                        Row {
+                            spacing: 6
+                            OWButton {
+                                label: BubbleState.open ? "HIDE 3D BUBBLES" : "SHOW 3D BUBBLES"
+                                active: BubbleState.open
+                                onClicked: BubbleState.open = !BubbleState.open
+                            }
+                            OWButton {
+                                visible: BubbleState.open
+                                label: "SUMMON"
+                                onClicked: BubbleState.recenterSeq++
+                            }
+                        }
+
+                        FieldHeader { label: "MAX PROCESS BUBBLES"; modified: WidgetConfig.isUiModified("bubbleMaxProcs"); onResetClicked: WidgetConfig.resetUiOption("bubbleMaxProcs") }
+                        OWSlider { width: parent.width; from: 8; to: 64; step: 2; value: WidgetConfig.bubbleMaxProcs; text: Math.round(WidgetConfig.bubbleMaxProcs) + " procs"; onMoved: (v) => WidgetConfig.setUiOpt("bubbleMaxProcs", v) }
+
+                        FieldHeader { label: "HUB SPACING (CPU / RAM / TEMP / NET / DISK)"; modified: WidgetConfig.isUiModified("bubbleHubSpacing"); onResetClicked: WidgetConfig.resetUiOption("bubbleHubSpacing") }
+                        OWSlider { width: parent.width; from: 80; to: 320; step: 5; value: WidgetConfig.bubbleHubSpacing; text: Math.round(WidgetConfig.bubbleHubSpacing) + " u"; onMoved: (v) => WidgetConfig.setUiOpt("bubbleHubSpacing", v) }
+
+                        FieldHeader { label: "ORBIT PULL (PROCS AROUND METRIC HUBS)"; modified: WidgetConfig.isUiModified("bubbleOrbitPull"); onResetClicked: WidgetConfig.resetUiOption("bubbleOrbitPull") }
+                        OWSlider { width: parent.width; from: 0.0; to: 1.8; step: 0.05; value: WidgetConfig.bubbleOrbitPull; text: WidgetConfig.bubbleOrbitPull.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("bubbleOrbitPull", v) }
+
+                        FieldHeader { label: "CLUSTER GRAVITY"; modified: WidgetConfig.isUiModified("bubbleGravity"); onResetClicked: WidgetConfig.resetUiOption("bubbleGravity") }
+                        OWSlider { width: parent.width; from: 0.0; to: 1.2; step: 0.02; value: WidgetConfig.bubbleGravity; text: WidgetConfig.bubbleGravity.toFixed(2); onMoved: (v) => WidgetConfig.setUiOpt("bubbleGravity", v) }
+
+                        FieldHeader { label: "SIMILAR PROCESS GROUPING"; modified: WidgetConfig.isUiModified("bubbleGroupAttract"); onResetClicked: WidgetConfig.resetUiOption("bubbleGroupAttract") }
+                        OWSlider { width: parent.width; from: 0.0; to: 1.8; step: 0.05; value: WidgetConfig.bubbleGroupAttract; text: WidgetConfig.bubbleGroupAttract.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("bubbleGroupAttract", v) }
+
+                        FieldHeader { label: "SPHERE SCALE"; modified: WidgetConfig.isUiModified("bubbleSphereSize"); onResetClicked: WidgetConfig.resetUiOption("bubbleSphereSize") }
+                        OWSlider { width: parent.width; from: 0.6; to: 1.8; step: 0.05; value: WidgetConfig.bubbleSphereSize; text: WidgetConfig.bubbleSphereSize.toFixed(2) + "×"; onMoved: (v) => WidgetConfig.setUiOpt("bubbleSphereSize", v) }
                     }
 
                     // ---- 10. RESET ----
@@ -2340,6 +2503,7 @@ Item {
         Behavior on slide { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
         visible: (root.inspectorOpen && WidgetConfig.panelOpen) || slide > 0.01
         opacity: slide
+        layer.enabled: slide > 0.001 && slide < 0.999
         enabled: root.inspectorOpen && WidgetConfig.panelOpen
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -2362,7 +2526,7 @@ Item {
             function onInspEntryChanged() { if (root.inspEntry) inspectorPanel.cachedEntry = root.inspEntry; }
         }
         readonly property var d: root.inspEntry || cachedEntry
-        readonly property string wid: root.expandedId
+        readonly property string wid: root.expandedId !== "" ? root.expandedId : (cachedEntry ? cachedEntry.id : "")
         readonly property bool modified: d !== null && (WidgetConfig.overrides[wid] !== undefined || d._extra)
         readonly property string keyAction: d ? Keybinds.forWidget(d.source) : ""
         readonly property string sourcePath: d ? String(d.source || "") : ""
@@ -2385,7 +2549,7 @@ Item {
             id: inspHead
             x: 16; y: 14; width: parent.width - 32; height: 38
             Text {
-                width: parent.width - 72; elide: Text.ElideRight
+                width: parent.width - (inspOrbBtn.visible ? 106 : 72); elide: Text.ElideRight
                 text: inspectorPanel.d ? WidgetConfig.widgetName(inspectorPanel.d).toUpperCase() : ""
                 color: root.cCream; font.family: root.mono; font.bold: true; font.pixelSize: 13; font.letterSpacing: 2
             }
@@ -2402,10 +2566,19 @@ Item {
                 }
             }
             OWButton {
+                id: inspOrbBtn
+                visible: inspectorPanel.d !== null && WidgetConfig.supportsPinOrbit(inspectorPanel.d.source)
+                anchors.right: inspPinBtn.left; anchors.rightMargin: 6
+                pad: 7; label: WidgetConfig.pinOrbitEnabled(inspectorPanel.wid) ? "◎" : "○"
+                active: WidgetConfig.pinOrbitEnabled(inspectorPanel.wid)
+                onClicked: WidgetConfig.togglePinOrbit(inspectorPanel.wid)
+            }
+            OWButton {
+                id: inspPinBtn
                 anchors.right: inspCloseBtn.left; anchors.rightMargin: 6
-                pad: 7; label: WidgetConfig.isPinned(inspectorPanel.wid) ? "◈" : "◇"
+                pad: 7; label: WidgetConfig.isPinLocked(inspectorPanel.wid) ? "❖" : (WidgetConfig.isPinned(inspectorPanel.wid) ? "◈" : "◇")
                 active: WidgetConfig.isPinned(inspectorPanel.wid)
-                onClicked: WidgetConfig.togglePin(inspectorPanel.wid)
+                onClicked: WidgetConfig.cyclePin(inspectorPanel.wid)
             }
             OWButton {
                 id: inspCloseBtn
@@ -2638,7 +2811,7 @@ Item {
                         width: parent.width; heading: "WIDGET SETTINGS"
 
                         Repeater {
-                            model: inspectorPanel.schema
+                            model: root.inspectorTab === "options" ? inspectorPanel.schema : []
                             delegate: Column {
                                 id: opt
                                 required property var modelData
@@ -2648,78 +2821,115 @@ Item {
                                 readonly property bool mod: WidgetConfig.settingIsModified(inspectorPanel.wid, s.key)
                                 width: parent.width; spacing: 4
 
-                                OWToggleRow {
-                                    visible: opt.s.type === "toggle"
-                                    label: opt.lbl; on: opt.cur === true; modified: opt.mod
-                                    onToggled: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
-                                    onResetClicked: WidgetConfig.resetSetting(inspectorPanel.wid, opt.s.key)
-                                }
-
                                 FieldHeader {
                                     visible: opt.s.type !== "toggle"
                                     label: opt.lbl.toUpperCase(); modified: opt.mod
                                     onResetClicked: WidgetConfig.resetSetting(inspectorPanel.wid, opt.s.key)
                                 }
 
-                                OWSlider {
-                                    visible: opt.s.type === "number"; width: opt.width
-                                    from: opt.s.min !== undefined ? opt.s.min : 0
-                                    to: opt.s.max !== undefined ? opt.s.max : 100
-                                    step: opt.s.step !== undefined ? opt.s.step : 1
-                                    value: Number(opt.cur)
-                                    text: String(Math.round(Number(opt.cur) * 1000) / 1000) + (opt.s.unit ? " " + opt.s.unit : "")
-                                    onMoved: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
-                                }
-
-                                Flow {
-                                    visible: opt.s.type === "choice" && !!opt.s.choices && opt.s.choices.length > 0 && opt.s.choices.length <= 3
-                                    width: opt.width; spacing: 5
-                                    Repeater {
-                                        model: (opt.s.type === "choice" && !!opt.s.choices && opt.s.choices.length > 0 && opt.s.choices.length <= 3) ? opt.s.choices : []
-                                        delegate: OWButton {
-                                            required property var modelData
-                                            readonly property var val: (typeof modelData === "object") ? modelData.value : modelData
-                                            label: String((typeof modelData === "object") ? (modelData.label !== undefined ? modelData.label : modelData.value) : modelData)
-                                            pad: 7; active: opt.cur === val
-                                            onClicked: WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, val)
+                                Loader {
+                                    width: opt.width
+                                    sourceComponent: {
+                                        switch (opt.s.type) {
+                                        case "toggle": return optToggleComp;
+                                        case "number": return optNumberComp;
+                                        case "choice": return (!!opt.s.choices && opt.s.choices.length > 3) ? optDropdownComp : optChoiceFlowComp;
+                                        case "color":  return optColorComp;
+                                        case "font":   return optFontComp;
+                                        case "file":   return optFileComp;
+                                        default:       return optTextComp;
                                         }
                                     }
                                 }
 
-                                OWDropdown {
-                                    visible: opt.s.type === "choice" && !!opt.s.choices && opt.s.choices.length > 3
-                                    width: opt.width
-                                    model: (opt.s.type === "choice" && !!opt.s.choices) ? opt.s.choices : []
-                                    value: opt.cur
-                                    onSelected: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                Component {
+                                    id: optToggleComp
+                                    OWToggleRow {
+                                        width: opt.width
+                                        label: opt.lbl; on: opt.cur === true; modified: opt.mod
+                                        onToggled: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                        onResetClicked: WidgetConfig.resetSetting(inspectorPanel.wid, opt.s.key)
+                                    }
                                 }
 
-                                OWColorPicker {
-                                    visible: opt.s.type === "color"; width: opt.width
-                                    allowBlank: opt.s.default === ""
-                                    defaultValue: String(opt.s.default !== undefined ? opt.s.default : "")
-                                    value: String(opt.cur)
-                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                Component {
+                                    id: optNumberComp
+                                    OWSlider {
+                                        width: opt.width
+                                        from: opt.s.min !== undefined ? opt.s.min : 0
+                                        to: opt.s.max !== undefined ? opt.s.max : 100
+                                        step: opt.s.step !== undefined ? opt.s.step : 1
+                                        value: Number(opt.cur)
+                                        text: String(Math.round(Number(opt.cur) * 1000) / 1000) + (opt.s.unit ? " " + opt.s.unit : "")
+                                        onMoved: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                    }
                                 }
 
-                                OWFontPicker {
-                                    visible: opt.s.type === "font"; width: opt.width
-                                    allowBlank: opt.s.default === ""
-                                    defaultValue: String(opt.s.default !== undefined ? opt.s.default : "")
-                                    value: String(opt.cur)
-                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                Component {
+                                    id: optChoiceFlowComp
+                                    Flow {
+                                        width: opt.width; spacing: 5
+                                        Repeater {
+                                            model: (!!opt.s.choices && opt.s.choices.length > 0) ? opt.s.choices : []
+                                            delegate: OWButton {
+                                                required property var modelData
+                                                readonly property var val: (typeof modelData === "object") ? modelData.value : modelData
+                                                label: String((typeof modelData === "object") ? (modelData.label !== undefined ? modelData.label : modelData.value) : modelData)
+                                                pad: 7; active: opt.cur === val
+                                                onClicked: WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, val)
+                                            }
+                                        }
+                                    }
                                 }
 
-                                OWFileField {
-                                    visible: opt.s.type === "file"; width: opt.width
-                                    title: opt.lbl; value: String(opt.cur)
-                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                Component {
+                                    id: optDropdownComp
+                                    OWDropdown {
+                                        width: opt.width
+                                        model: !!opt.s.choices ? opt.s.choices : []
+                                        value: opt.cur
+                                        onSelected: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                    }
                                 }
 
-                                OWTextField {
-                                    visible: opt.s.type === "text"; width: opt.width
-                                    value: String(opt.cur)
-                                    onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                Component {
+                                    id: optColorComp
+                                    OWColorPicker {
+                                        width: opt.width
+                                        allowBlank: opt.s.default === ""
+                                        defaultValue: String(opt.s.default !== undefined ? opt.s.default : "")
+                                        value: String(opt.cur)
+                                        onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                    }
+                                }
+
+                                Component {
+                                    id: optFontComp
+                                    OWFontPicker {
+                                        width: opt.width
+                                        allowBlank: opt.s.default === ""
+                                        defaultValue: String(opt.s.default !== undefined ? opt.s.default : "")
+                                        value: String(opt.cur)
+                                        onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                    }
+                                }
+
+                                Component {
+                                    id: optFileComp
+                                    OWFileField {
+                                        width: opt.width
+                                        title: opt.lbl; value: String(opt.cur)
+                                        onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                    }
+                                }
+
+                                Component {
+                                    id: optTextComp
+                                    OWTextField {
+                                        width: opt.width
+                                        value: String(opt.cur)
+                                        onEdited: (v) => WidgetConfig.setSetting(inspectorPanel.wid, opt.s.key, v)
+                                    }
                                 }
                             }
                         }

@@ -14,6 +14,8 @@ WidgetCard {
     readonly property real lt: rig ? rig.loopTime : 0
     readonly property real novaAt: 1290
     readonly property real total: rig ? rig.maxLoopTime : 1320
+    readonly property real progress: Math.max(0, Math.min(1, lt / Math.max(1, total)))
+    readonly property string progressLabel: mainValue
     readonly property bool warning: (novaAt - lt) <= (cfg.warnSec !== undefined ? cfg.warnSec : 90)
     readonly property color effBarColor: (cfg.barColor && cfg.barColor.toUpperCase() !== "#D4AF37") ? cfg.barColor : w.accent
     readonly property color effWarnColor: cfg.warnColor || "#FF7A45"

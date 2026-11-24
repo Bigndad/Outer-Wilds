@@ -73,6 +73,7 @@ QtObject {
         { id: "openApp",   group: gRumor,    ctx: "rumor", kind: "key",      label: "Open the app",         hint: "",                                  def: "O" },
         { id: "pin",       group: gRumor,    ctx: "rumor", kind: "key",      label: "Pin",                  hint: "",                                  def: "P" },
         { id: "dismiss",   group: gRumor,    ctx: "rumor", kind: "key",      label: "Dismiss",              hint: "",                                  def: "X" },
+        { id: "clearAll",  group: gRumor,    ctx: "rumor", kind: "key",      label: "Clear all rumors",     hint: "press twice to wipe the log",       def: "Shift+X" },
         { id: "fit",       group: gRumor,    ctx: "rumor", kind: "key",      label: "Fit everything",       hint: "",                                  def: "Home" }
     ]
 

@@ -1,0 +1,222 @@
+import QtQuick
+import Quickshell.Io
+import ".."
+
+WidgetCard {
+    id: card
+    title: "WEATHER"
+    designW: 280
+    designH: 146
+
+    property var cfg: ({ autoLocation: true, location: "", lat: 18.91, lon: 72.81, unit: "C",
+                         windUnit: "km/h", showWind: true, refreshMin: 15, accentColor: "#FF6347" })
+
+    accent: (cardStyle && cardStyle.accent) ? cardStyle.accent
+          : ((cfg.accentColor && cfg.accentColor.toUpperCase() !== "#FF6347") ? cfg.accentColor : card.cGold)
+    readonly property string effWeatherFont: card.effFont
+    readonly property string scriptPath: String(Qt.resolvedUrl("../data/weather_fetch.py")).replace(/^file:\/\//, "")
+
+    property string cityName: ""
+    property real rawTempC: NaN
+    property real rawFeelsC: NaN
+    property real rawWindKmh: NaN
+    property string condText: "SCANNING..."
+    property string _lastReqKey: ""
+    property bool _queued: false
+
+    readonly property string tempText: {
+        if (!isFinite(rawTempC)) return "--°" + (cfg.unit || "C");
+        const val = cfg.unit === "F" ? (rawTempC * 9 / 5 + 32) : rawTempC;
+        return Math.round(val) + "°" + (cfg.unit || "C");
+    }
+    readonly property string feelsText: {
+        if (!isFinite(rawFeelsC)) return "";
+        const val = cfg.unit === "F" ? (rawFeelsC * 9 / 5 + 32) : rawFeelsC;
+        return "FEELS " + Math.round(val) + "°";
+    }
+    readonly property string windText: {
+        if (!isFinite(rawWindKmh)) return "-- " + (cfg.windUnit || "km/h");
+        const u = cfg.windUnit || "km/h";
+        const val = u === "m/s" ? (rawWindKmh / 3.6) : (u === "mph" ? (rawWindKmh * 0.621371) : rawWindKmh);
+        return Math.round(val) + " " + u + " WIND";
+    }
+
+    function wmoDesc(code) {
+        if (code === 0) return "CLEAR SKY";
+        if (code <= 3) return "PARTLY CLOUDY";
+        if (code <= 48) return "ATMOSPHERIC FOG";
+        if (code <= 67) return "PRECIPITATION";
+        if (code <= 82) return "RAIN SHOWERS";
+        if (code >= 95) return "ELECTRICAL STORM";
+        return "CODE " + code;
+    }
+
+    function reqKey() {
+        const q = String(cfg.location || "").trim();
+        return (cfg.autoLocation !== false ? "1" : "0") + "|" + q + "|" + Number(cfg.lat) + "|" + Number(cfg.lon);
+    }
+
+    function startFetch() {
+        if (weatherProc.running) { _queued = true; return; }
+        _queued = false;
+        _lastReqKey = reqKey();
+        const cmd = ["python3", card.scriptPath];
+        const q = String(cfg.location || "").trim();
+        if (q !== "") { cmd.push("--query", q); }
+        else if (cfg.autoLocation !== false) { cmd.push("--auto"); }
+        if (isFinite(Number(cfg.lat)) && isFinite(Number(cfg.lon))) {
+            cmd.push("--lat", String(cfg.lat), "--lon", String(cfg.lon));
+        }
+        weatherProc.command = cmd;
+        weatherProc.running = true;
+    }
+
+    Timer {
+        id: fetchDebounce
+        interval: 350
+        onTriggered: card.startFetch()
+    }
+
+    onCfgChanged: {
+        if (reqKey() !== _lastReqKey) fetchDebounce.restart();
+    }
+
+    Component.onCompleted: startFetch()
+
+    Timer {
+        interval: Math.max(60000, Math.round((card.cfg.refreshMin || 15) * 60000))
+        running: true
+        repeat: true
+        onTriggered: card.startFetch()
+    }
+
+    Process {
+        id: weatherProc
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    const j = JSON.parse(text.trim());
+                    if (j.city) card.cityName = String(j.city).toUpperCase();
+                    if (j.ok) {
+                        if (j.temp !== null && j.temp !== undefined) card.rawTempC = Number(j.temp);
+                        if (j.feels !== null && j.feels !== undefined) card.rawFeelsC = Number(j.feels);
+                        if (j.wind !== null && j.wind !== undefined) card.rawWindKmh = Number(j.wind);
+                        if (j.code !== null && j.code !== undefined) card.condText = card.wmoDesc(parseInt(j.code));
+                    } else {
+                        card.condText = String(j.error || "UNAVAILABLE");
+                    }
+                } catch (e) {
+                    card.condText = "PARSE ERROR";
+                }
+            }
+        }
+        onExited: {
+            if (card._queued) Qt.callLater(card.startFetch);
+        }
+    }
+
+    Column {
+        anchors.fill: parent
+        spacing: 6 * card.ui
+
+        Item {
+            width: parent.width
+            height: tempLbl.implicitHeight
+
+            Text {
+                id: tempLbl
+                anchors.left: parent.left
+                text: card.tempText
+                color: card.cCream
+                font.family: card.effWeatherFont
+                font.pixelSize: Math.max(10, Math.round(30 * card.ui))
+                font.bold: true
+            }
+
+            Row {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4 * card.ui
+
+                Rectangle {
+                    visible: card.cityName !== ""
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(card.innerW * 0.45, cityLbl.implicitWidth + 10 * card.ui)
+                    height: cityLbl.implicitHeight + 6 * card.ui
+                    radius: 4 * card.ui
+                    color: Qt.rgba(card.accent.r, card.accent.g, card.accent.b, 0.14)
+                    border.width: Math.max(1, Math.round(card.ui))
+                    border.color: Qt.rgba(card.accent.r, card.accent.g, card.accent.b, 0.32)
+
+                    Text {
+                        id: cityLbl
+                        anchors.centerIn: parent
+                        width: parent.width - 8 * card.ui
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                        text: card.cityName
+                        color: card.accent
+                        font.family: card.effWeatherFont
+                        font.bold: true
+                        font.pixelSize: Math.max(7, Math.round(9 * card.ui))
+                        font.letterSpacing: 1 * card.ui
+                    }
+                }
+
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 18 * card.ui
+                    height: 18 * card.ui
+                    radius: 4 * card.ui
+                    color: refMa.containsMouse ? Qt.rgba(card.accent.r, card.accent.g, card.accent.b, 0.2) : "#1F000000"
+                    border.width: Math.max(1, Math.round(card.ui))
+                    border.color: Qt.rgba(card.cDim.r, card.cDim.g, card.cDim.b, 0.25)
+                    Text {
+                        anchors.centerIn: parent
+                        text: "↻"
+                        color: refMa.containsMouse ? card.accent : card.cDim
+                        font.family: card.effWeatherFont
+                        font.pixelSize: Math.max(8, Math.round(10 * card.ui))
+                    }
+                    MouseArea {
+                        id: refMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { card.condText = "REFRESHING..."; card.startFetch(); }
+                    }
+                }
+            }
+        }
+
+        Text {
+            width: parent.width
+            elide: Text.ElideRight
+            text: card.condText + (card.feelsText !== "" ? ("  ·  " + card.feelsText) : "")
+            color: card.accent
+            font.family: card.effWeatherFont
+            font.bold: true
+            font.pixelSize: Math.max(8, Math.round(10.5 * card.ui))
+            font.letterSpacing: 1.2 * card.ui
+        }
+
+        Rectangle {
+            visible: card.cfg.showWind !== false
+            width: windLbl.implicitWidth + 12 * card.ui
+            height: windLbl.implicitHeight + 5 * card.ui
+            radius: 3 * card.ui
+            color: "#1F000000"
+            border.width: Math.max(1, Math.round(card.ui))
+            border.color: Qt.rgba(card.cDim.r, card.cDim.g, card.cDim.b, 0.22)
+
+            Text {
+                id: windLbl
+                anchors.centerIn: parent
+                text: card.windText
+                color: card.cDim
+                font.family: card.effWeatherFont
+                font.pixelSize: Math.max(7, Math.round(10 * card.ui))
+            }
+        }
+    }
+}
