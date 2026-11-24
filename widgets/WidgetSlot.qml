@@ -360,7 +360,7 @@ Item {
         color: "transparent"
         border.width: slot.isPinLocked ? 2.5 : 2
         border.color: slot.isPinLocked ? WidgetConfig.pinLockOutlineColor : WidgetConfig.pinOutlineColor
-        opacity: slot.isPinned ? 0.96 : 0.0
+        opacity: (slot.isPinned && !slot.showPinOrbit) ? 0.96 : 0.0
         visible: opacity > 0.01
         Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
         Behavior on border.color { ColorAnimation { duration: 180 } }
@@ -392,7 +392,7 @@ Item {
         opacity: slot.isPinLocked ? 0.95 : 0.0
         Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
         anchors.horizontalCenter: parent.horizontalCenter
-        y: slot.showPinOrbit ? -26 : -15
+        y: -15
         width: lockLbl.implicitWidth + 12
         height: 16
         radius: 4
@@ -417,7 +417,7 @@ Item {
         z: 102
         visible: slot.showPinOrbit
         anchors.fill: parent
-        anchors.margins: -28
+        anchors.margins: -14
         onWidthChanged: if (visible) requestPaint()
         onHeightChanged: if (visible) requestPaint()
         onVisibleChanged: if (visible) requestPaint()
@@ -467,7 +467,7 @@ Item {
             ctx.clearRect(0, 0, width, height);
             if (!slot.showPinOrbit || slot.width <= 4 || slot.height <= 4) return;
 
-            const m = 28, pad = 14;
+            const m = 14, pad = 4;
             const x0 = m - pad, y0 = m - pad;
             const ow = slot.width + pad * 2, oh = slot.height + pad * 2;
             const r = slot.isCircular
@@ -479,24 +479,11 @@ Item {
             const col = Qt.color(slot.isPinLocked ? WidgetConfig.pinLockOutlineColor : WidgetConfig.pinOutlineColor);
             const rgba = (a) => "rgba(" + Math.round(col.r * 255) + "," + Math.round(col.g * 255) + "," + Math.round(col.b * 255) + "," + a + ")";
 
-            // 1. Dashed orbital track
+            // 1. Clean base outline track
             ctx.save();
-            ctx.strokeStyle = rgba(0.24 + 0.30 * hl);
-            ctx.lineWidth = 1.2 + 0.6 * hl;
-            if (ctx.setLineDash) ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = rgba(0.26 + 0.24 * hl);
+            ctx.lineWidth = (slot.isPinLocked ? 2.2 : 1.8) + 0.4 * hl;
             tracePerim(ctx, x0, y0, ow, oh, r, perim);
-            ctx.stroke();
-            if (ctx.setLineDash) ctx.setLineDash([]);
-
-            // 2. Subtle cardinal orbit ticks (12, 3, 6, 9 o-clock)
-            ctx.strokeStyle = rgba(0.35 + 0.45 * hl);
-            ctx.lineWidth = 1.2;
-            const tk = 3.5 + 1.5 * hl;
-            ctx.beginPath();
-            ctx.moveTo(x0 + ow * 0.5, y0 - tk); ctx.lineTo(x0 + ow * 0.5, y0 + tk);
-            ctx.moveTo(x0 + ow - tk, y0 + oh * 0.5); ctx.lineTo(x0 + ow + tk, y0 + oh * 0.5);
-            ctx.moveTo(x0 + ow * 0.5, y0 + oh - tk); ctx.lineTo(x0 + ow * 0.5, y0 + oh + tk);
-            ctx.moveTo(x0 - tk, y0 + oh * 0.5); ctx.lineTo(x0 + tk, y0 + oh * 0.5);
             ctx.stroke();
 
             // 3. Progress arc (+ hover bloom glow)

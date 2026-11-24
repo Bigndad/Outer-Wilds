@@ -634,7 +634,11 @@
     "x14": true,
     "x22": true
   },
-  "lockedPins": {},
+  "lockedPins": {
+    "x22": {
+      "angle": 3.6116822303558322
+    }
+  },
   "pinOrbits": {},
   "presets": {},
   "keys": {
